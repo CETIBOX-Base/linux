@@ -853,9 +853,10 @@ Found in hex form in kernel source.
 
 --------------------------------------------------------------------------
 
-Driver: xhci-rcar -- Renesas R-Car H2/M2 USB 3.0 host controller driver
+Driver: xhci-rcar -- Renesas R-Car H2/M2/H3 USB 3.0 host controller driver
 
 File: r8a779x_usb3_v1.dlmem
+File: r8a779x_usb3_v2.dlmem
 
 Licence: Redistributable. See LICENCE.r8a779x_usb3 for details.
 
