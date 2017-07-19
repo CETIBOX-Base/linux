@@ -53,8 +53,7 @@
  */
 #define IO_TLB_MIN_SLABS ((1<<20) >> IO_TLB_SHIFT)
 
-int swiotlb_force;
-static int swiotlb_nobounce;
+enum swiotlb_force swiotlb_force;
 
 /*
  * Used to do a quick range check in swiotlb_tbl_unmap_single and
@@ -108,9 +107,9 @@ setup_io_tlb_npages(char *str)
 	if (*str == ',')
 		++str;
 	if (!strcmp(str, "force")) {
-		swiotlb_force = 1;
-	} else if (!strcmp(str, "nobounce")) {
-		swiotlb_nobounce = 1;
+		swiotlb_force = SWIOTLB_FORCE;
+	} else if (!strcmp(str, "noforce")) {
+		swiotlb_force = SWIOTLB_NO_FORCE;
 		io_tlb_nslabs = 1;
 	}
 
@@ -457,11 +456,11 @@ phys_addr_t swiotlb_tbl_map_single(struct device *hwdev,
 		    : 1UL << (BITS_PER_LONG - IO_TLB_SHIFT);
 
 	/*
-	 * For mappings greater than a page, we limit the stride (and
-	 * hence alignment) to a page size.
+	 * For mappings greater than or equal to a page, we limit the stride
+	 * (and hence alignment) to a page size.
 	 */
 	nslots = ALIGN(size, 1 << IO_TLB_SHIFT) >> IO_TLB_SHIFT;
-	if (size > PAGE_SIZE)
+	if (size >= PAGE_SIZE)
 		stride = (1 << (PAGE_SHIFT - IO_TLB_SHIFT));
 	else
 		stride = 1;
@@ -548,7 +547,7 @@ map_single(struct device *hwdev, phys_addr_t phys, size_t size,
 {
 	dma_addr_t start_dma_addr;
 
-	if (swiotlb_nobounce) {
+	if (swiotlb_force == SWIOTLB_NO_FORCE) {
 		dev_warn_ratelimited(hwdev, "Cannot do DMA to address %pa\n",
 				     &phys);
 		return SWIOTLB_MAP_ERROR;
@@ -719,7 +718,7 @@ static void
 swiotlb_full(struct device *dev, size_t size, enum dma_data_direction dir,
 	     int do_panic)
 {
-	if (swiotlb_nobounce)
+	if (swiotlb_force == SWIOTLB_NO_FORCE)
 		return;
 
 	/*
@@ -764,7 +763,7 @@ dma_addr_t swiotlb_map_page(struct device *dev, struct page *page,
 	 * we can safely return the device addr and not worry about bounce
 	 * buffering it.
 	 */
-	if (dma_capable(dev, dev_addr, size) && !swiotlb_force)
+	if (dma_capable(dev, dev_addr, size) && swiotlb_force != SWIOTLB_FORCE)
 		return dev_addr;
 
 	trace_swiotlb_bounced(dev, dev_addr, size, swiotlb_force);
@@ -903,7 +902,7 @@ swiotlb_map_sg_attrs(struct device *hwdev, struct scatterlist *sgl, int nelems,
 		phys_addr_t paddr = sg_phys(sg);
 		dma_addr_t dev_addr = phys_to_dma(hwdev, paddr);
 
-		if (swiotlb_force ||
+		if (swiotlb_force == SWIOTLB_FORCE ||
 		    !dma_capable(hwdev, dev_addr, sg->length)) {
 			phys_addr_t map = map_single(hwdev, sg_phys(sg),
 						     sg->length, dir);

@@ -707,7 +707,8 @@ static irqreturn_t lineevent_irq_thread(int irq, void *p)
 
 	ge.timestamp = ktime_get_real_ns();
 
-	if (le->eflags & GPIOEVENT_REQUEST_BOTH_EDGES) {
+	if (le->eflags & GPIOEVENT_REQUEST_RISING_EDGE
+	    && le->eflags & GPIOEVENT_REQUEST_FALLING_EDGE) {
 		int level = gpiod_get_value_cansleep(le->desc);
 
 		if (level)
@@ -986,7 +987,8 @@ static int gpio_chrdev_open(struct inode *inode, struct file *filp)
 		return -ENODEV;
 	get_device(&gdev->dev);
 	filp->private_data = gdev;
-	return 0;
+
+	return nonseekable_open(inode, filp);
 }
 
 /**
@@ -1011,7 +1013,7 @@ static const struct file_operations gpio_fileops = {
 	.release = gpio_chrdev_release,
 	.open = gpio_chrdev_open,
 	.owner = THIS_MODULE,
-	.llseek = noop_llseek,
+	.llseek = no_llseek,
 	.unlocked_ioctl = gpio_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = gpio_ioctl_compat,
@@ -1316,12 +1318,12 @@ void gpiochip_remove(struct gpio_chip *chip)
 
 	/* FIXME: should the legacy sysfs handling be moved to gpio_device? */
 	gpiochip_sysfs_unregister(gdev);
+	gpiochip_free_hogs(chip);
 	/* Numb the device, cancelling all outstanding operations */
 	gdev->chip = NULL;
 	gpiochip_irqchip_remove(chip);
 	acpi_gpiochip_remove(chip);
 	gpiochip_remove_pin_ranges(chip);
-	gpiochip_free_hogs(chip);
 	of_gpiochip_remove(chip);
 	/*
 	 * We accept no more calls into the driver from this point, so
