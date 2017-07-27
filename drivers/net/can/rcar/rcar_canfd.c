@@ -42,6 +42,7 @@
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
 #include <linux/iopoll.h>
+#include <linux/net_tstamp.h>
 
 #define RCANFD_DRV_NAME			"rcar_canfd"
 
@@ -1413,6 +1414,8 @@ static netdev_tx_t rcar_canfd_start_xmit(struct sk_buff *skb,
 	if (priv->tx_head - priv->tx_tail >= RCANFD_FIFO_DEPTH)
 		netif_stop_queue(ndev);
 
+	skb_tx_timestamp(skb);
+
 	/* Start Tx: Write 0xff to CFPC to increment the CPU-side
 	 * pointer for the Common FIFO
 	 */
@@ -1566,6 +1569,33 @@ static const struct net_device_ops rcar_canfd_netdev_ops = {
 	.ndo_change_mtu = can_change_mtu,
 };
 
+static int rcar_canfd_get_ts_info(struct net_device *dev,
+								  struct ethtool_ts_info *info)
+{
+	info->phc_index = -1;
+	info->so_timestamping =
+		SOF_TIMESTAMPING_TX_SOFTWARE |
+//		SOF_TIMESTAMPING_TX_HARDWARE |
+		SOF_TIMESTAMPING_SOFTWARE |
+		SOF_TIMESTAMPING_RX_SOFTWARE; // |
+//		SOF_TIMESTAMPING_RX_HARDWARE |
+//		SOF_TIMESTAMPING_RAW_HARDWARE;
+
+	info->tx_types =
+			BIT(HWTSTAMP_TX_OFF) |
+			BIT(HWTSTAMP_TX_ON);
+
+	info->rx_filters =
+		BIT(HWTSTAMP_FILTER_NONE) |
+		BIT(HWTSTAMP_FILTER_ALL);
+
+	return 0;
+}
+
+static const struct ethtool_ops rcar_canfd_ethtool_ops = {
+	.get_ts_info = rcar_canfd_get_ts_info,
+};
+
 static int rcar_canfd_channel_probe(struct rcar_canfd_global *gpriv, u32 ch,
 				    u32 fcan_freq)
 {
@@ -1583,6 +1613,7 @@ static int rcar_canfd_channel_probe(struct rcar_canfd_global *gpriv, u32 ch,
 	priv = netdev_priv(ndev);
 
 	ndev->netdev_ops = &rcar_canfd_netdev_ops;
+	ndev->ethtool_ops = &rcar_canfd_ethtool_ops;
 	ndev->flags |= IFF_ECHO;
 	priv->ndev = ndev;
 	priv->base = gpriv->base;
