@@ -48,6 +48,9 @@
 
 #define RCANFD_MAX_PENDING_TXTS 16
 
+// pclk is 133 MHz / 2
+#define RCANFD_TS_CLOCK_NS 15ul
+
 /* Global register bits */
 
 /* RSCFDnCFDGRMCFG */
@@ -683,9 +686,9 @@ static ktime_t rcar_canfd_ts_to_ktime(struct rcar_canfd_global *gpriv, u16 ts)
 	}
 	spin_unlock(&gpriv->ts_lock);
 	
-	/* Timestamp counter period is 25 ns (40 MHz) * tss_tsp */
+	/* Timestamp counter period is RCANFD_TS_CLOCK_NS ns * tss_tsp */
 	return ns_to_ktime(((epoch << 16) + (u64)ts) *
-					   25lu * ((u64)gpriv->tss_tsp));
+					   RCANFD_TS_CLOCK_NS * ((u64)gpriv->tss_tsp));
 }
 
 static int rcar_canfd_tsp_to_cfg(u8 tsp, u8 *cfg)
@@ -1167,8 +1170,6 @@ static void rcar_canfd_read_thb(struct net_device *ndev)
 	u32 ch = priv->channel;
 	u32 sts;
 
-	pr_info_ratelimited("THB: int!\n");
-	
 	while (!((sts = rcar_canfd_read(priv->base, RCANFD_THLSTS(ch))) & RCANFD_THLSTS_THLEMP)) {
 		uint32_t txhist = rcar_canfd_read(priv->base, RCANFD_C_THLACC(ch));
 
@@ -1724,9 +1725,8 @@ static int rcar_canfd_get_ts_info(struct net_device *dev,
 		SOF_TIMESTAMPING_TX_SOFTWARE |
 		SOF_TIMESTAMPING_TX_HARDWARE |
 		SOF_TIMESTAMPING_SOFTWARE |
-		SOF_TIMESTAMPING_RX_SOFTWARE; // |
-//		SOF_TIMESTAMPING_RX_HARDWARE |
-//		SOF_TIMESTAMPING_RAW_HARDWARE;
+		SOF_TIMESTAMPING_RX_SOFTWARE |
+		SOF_TIMESTAMPING_RAW_HARDWARE;
 
 	info->tx_types =
 			BIT(HWTSTAMP_TX_OFF) |
@@ -1982,7 +1982,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	}
 
 	/* Schedule timestamp epoch hrtimer 4 times per counter overflow period */
-	gpriv->ts_hrtimer_interval = ns_to_ktime(25ul * 16384ul * gpriv->tss_tsp);
+	gpriv->ts_hrtimer_interval = ns_to_ktime(RCANFD_TS_CLOCK_NS * 16384ul * gpriv->tss_tsp);
 	dev_info(&pdev->dev, "hrtimer interval is %lld ns", gpriv->ts_hrtimer_interval.tv64);
 	hrtimer_start(&gpriv->ts_hrtimer, gpriv->ts_hrtimer_interval, HRTIMER_MODE_REL);
 	
@@ -2028,6 +2028,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 fail_channel:
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS)
 		rcar_canfd_channel_remove(gpriv, ch);
+	hrtimer_cancel(&gpriv->ts_hrtimer);
 fail_mode:
 	rcar_canfd_disable_global_interrupts(gpriv);
 fail_clk:
@@ -2041,6 +2042,8 @@ static int rcar_canfd_remove(struct platform_device *pdev)
 	struct rcar_canfd_global *gpriv = platform_get_drvdata(pdev);
 	u32 ch;
 
+	hrtimer_cancel(&gpriv->ts_hrtimer);
+	
 	rcar_canfd_reset_controller(gpriv);
 	rcar_canfd_disable_global_interrupts(gpriv);
 
