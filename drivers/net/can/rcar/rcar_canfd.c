@@ -43,10 +43,13 @@
 #include <linux/bitops.h>
 #include <linux/iopoll.h>
 #include <linux/net_tstamp.h>
+#include <linux/devcts.h>
 
 #define RCANFD_DRV_NAME			"rcar_canfd"
 
 #define RCANFD_MAX_PENDING_TXTS 16
+#define RCANFD_MAX_CTS_TRIES 128
+#define RCANFD_MAX_CTS_DELAY 1000
 
 // pclk is 133 MHz / 2
 #define RCANFD_TS_CLOCK_NS 15ul
@@ -674,17 +677,17 @@ static enum hrtimer_restart rcar_canfd_ts_epoch_hrtimer(struct hrtimer *timer)
 	return HRTIMER_RESTART;
 }
 
-/* Call from hard interrupt context */
 static ktime_t rcar_canfd_ts_to_ktime(struct rcar_canfd_global *gpriv, u16 ts)
 {
+	unsigned long flags;
 	u64 epoch;
 	
-	spin_lock(&gpriv->ts_lock);
+	spin_lock_irqsave(&gpriv->ts_lock, flags);
     epoch = gpriv->ts_epoch;
 	if (ts < gpriv->ts_last) {
 		++epoch;
 	}
-	spin_unlock(&gpriv->ts_lock);
+	spin_unlock_irqrestore(&gpriv->ts_lock, flags);
 	
 	/* Timestamp counter period is RCANFD_TS_CLOCK_NS ns * tss_tsp */
 	return ns_to_ktime(((epoch << 16) + (u64)ts) *
@@ -1164,6 +1167,23 @@ static void rcar_canfd_tx_done(struct net_device *ndev)
 	can_led_event(ndev, CAN_LED_EVENT_TX);
 }
 
+static unsigned rcar_canfd_calc_frame_time(const struct can_frame *cf,
+										  struct rcar_canfd_channel *priv)
+{
+	u32 bitrate = priv->can.bittiming.bitrate;
+	u32 bittime = 1000000000u/bitrate;
+
+	// TODO: This ignores bitstuffing...
+	unsigned bits = cf->can_dlc*8;
+	if (cf->can_id & CAN_EFF_FLAG) {
+		bits += CAN_EFF_ID_BITS + 1+1+1+1+2+4+15+1+1+1+7;
+	} else {
+		bits += CAN_SFF_ID_BITS + 1+1+1+1+4+15+1+1+1+7;
+	}
+
+	return bittime*bits;
+}
+
 static void rcar_canfd_read_thb(struct net_device *ndev)
 {
 	struct rcar_canfd_channel *priv = netdev_priv(ndev);
@@ -1183,9 +1203,13 @@ static void rcar_canfd_read_thb(struct net_device *ndev)
 			shhwtstamps.hwtstamp = rcar_canfd_ts_to_ktime(priv->gpriv, ts);
 			if (shhwtstamps.hwtstamp.tv64 == 0)
 				pr_warn("Timestamp is 0! TS: %u\n", ts);
-
+			shhwtstamps.hwtstamp = ktime_add_ns(
+				shhwtstamps.hwtstamp,
+				rcar_canfd_calc_frame_time((struct can_frame *)priv->txts_skb[label]->data,
+										   priv));
+			
 			skb_tstamp_tx(priv->txts_skb[label], &shhwtstamps);
-			dev_kfree_skb_any(priv->txts_skb[label]);
+			dev_kfree_skb_irq(priv->txts_skb[label]);
 			priv->txts_skb[label] = NULL;
 		}
 		
@@ -1819,6 +1843,32 @@ static void rcar_canfd_channel_remove(struct rcar_canfd_global *gpriv, u32 ch)
 	}
 }
 
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+static int rcar_canfd_get_time_fn(ktime_t *device_time,
+						   ktime_t *sys_time,
+						   void *ctx)
+{
+	struct rcar_canfd_global *gpriv = (struct rcar_canfd_global *)ctx;
+	int it = 0;
+	
+	while (it < RCANFD_MAX_CTS_TRIES) {
+		ktime_t pre = ktime_get(), post;
+		u16 ts = rcar_canfd_read(gpriv->base, RCANFD_GTSC);
+		post = ktime_get();
+
+		if (ktime_to_ns(ktime_sub(post, pre)) < RCANFD_MAX_CTS_DELAY) {
+			*device_time = rcar_canfd_ts_to_ktime(gpriv, ts);
+			*sys_time = ktime_add_ns(pre, ktime_divns(ktime_sub(post, pre), 2));
+			
+			return 0;
+		}
+		++it;
+	}
+
+	return -ETIMEDOUT;
+}
+#endif
+
 static int rcar_canfd_probe(struct platform_device *pdev)
 {
 	struct resource *mem;
@@ -1985,7 +2035,15 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	gpriv->ts_hrtimer_interval = ns_to_ktime(RCANFD_TS_CLOCK_NS * 16384ul * gpriv->tss_tsp);
 	dev_info(&pdev->dev, "hrtimer interval is %lld ns", gpriv->ts_hrtimer_interval.tv64);
 	hrtimer_start(&gpriv->ts_hrtimer, gpriv->ts_hrtimer_interval, HRTIMER_MODE_REL);
-	
+
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+	err = devcts_register_device(pdev->name, &rcar_canfd_get_time_fn,
+									 (void*)gpriv);
+	if (err != 0) {
+		dev_warn(&pdev->dev, "Failed to register with devcts: %d\n", err);
+	}
+#endif
+		
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
 		enum of_gpio_flags enable_flags, standby_flags;
 		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
@@ -2042,6 +2100,10 @@ static int rcar_canfd_remove(struct platform_device *pdev)
 	struct rcar_canfd_global *gpriv = platform_get_drvdata(pdev);
 	u32 ch;
 
+#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
+	devcts_unregister_device(pdev->name);
+#endif
+	
 	hrtimer_cancel(&gpriv->ts_hrtimer);
 	
 	rcar_canfd_reset_controller(gpriv);
