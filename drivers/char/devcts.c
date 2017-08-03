@@ -14,7 +14,6 @@
 #include <linux/device.h>
 
 #include <linux/devcts.h>
-#include <uapi/devcts.h>
 
 MODULE_AUTHOR("Matthias Blankertz <matthias.blankertz@cetitec.com>");
 MODULE_LICENSE("GPL");

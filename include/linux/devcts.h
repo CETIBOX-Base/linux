@@ -2,6 +2,7 @@
 #define _DEVCTS_H_
 
 #include <linux/ktime.h>
+#include <uapi/linux/devcts.h>
 
 typedef int (*devcts_get_time_fn_t)(ktime_t *, ktime_t *, void *);
 

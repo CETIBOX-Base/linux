@@ -1,13 +1,13 @@
 #ifndef _UAPI_LINUX_DEVCTS_H
 #define _UAPI_LINUX_DEVCTS_H
 
-#include <linux/compiler.h>
+#include <linux/ioctl.h>
 #include <linux/types.h>
-#include <uapi/asm-generic/ioctl.h>
+#include <linux/compiler.h>
 
 struct devcts_req {
-	u64 src_ts, dst_ts;
-	char __user *src_dev, *dst_dev;
+	__u64 src_ts, dst_ts;
+	const char __user *src_dev, *dst_dev;
 };
 
 #define DEVCTS_DEVTOSYS _IOWR(42, 0, struct devcts_req)
