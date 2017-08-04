@@ -224,7 +224,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 {
 	struct ptp_clock *ptp;
 	int err = 0, index, major = MAJOR(ptp_devt);
-	char *ptpname;
+	char ptpname[32];
 
 	if (info->n_alarm > PTP_MAX_ALARMS)
 		return ERR_PTR(-EINVAL);
@@ -285,13 +285,13 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 	}
 
 #if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
-	ptpname = kasprintf(GFP_KERNEL, "ptp%d", ptp->index);
+	snprintf(ptpname, 32, "ptp%d", ptp->index);
 	err = devcts_register_device(ptpname, &ptp_clock_get_time_fn,
 								 (void*)ptp);
-	kfree(ptpname);
 	if (err != 0) {
 		dev_warn(ptp->dev, "Failed to register with devcts: %d\n", err);
 	}
+  no_devcts:
 #endif
 	
 	return ptp;
@@ -317,9 +317,9 @@ EXPORT_SYMBOL(ptp_clock_register);
 int ptp_clock_unregister(struct ptp_clock *ptp)
 {
 #if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
-	char *ptpname = kasprintf(GFP_KERNEL, "ptp%d", ptp->index);
+	char ptpname[32];
+	snprintf(ptpname, 32, "ptp%d", ptp->index);
 	devcts_unregister_device(ptpname);
-	kfree(ptpname);
 #endif
 	
 	ptp->defunct = 1;
