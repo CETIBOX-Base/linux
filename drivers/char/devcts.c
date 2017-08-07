@@ -95,9 +95,6 @@ static ktime_t devcts_interpolate_to_dev(struct cts_dev *ctsdev, ktime_t systime
 
 	y = ktime_to_ns(ktime_sub(x, x0));
 
-	pr_info("to_dev: x: %lld\tx0: %lld\tx1: %lld\n", x, x0, x1);
-	pr_info("to_dev: y: %lld\ty0: %lld\ty1: %lld\n", y, y0, y1);
-
 	y *= y1 - y0;
 
 	y = div64_s64(y, (ktime_to_ns(ktime_sub(x1, x0))));
@@ -127,9 +124,6 @@ static ktime_t devcts_interpolate_to_sys(struct cts_dev *ctsdev, ktime_t devtime
 	x1 = cts[1].devtime;
 
 	y = ktime_to_ns(ktime_sub(x, x0));
-
-	pr_info("to_sys: x: %lld\tx0: %lld\tx1: %lld\n", x, x0, x1);
-	pr_info("to_sys: y: %lld\ty0: %lld\ty1: %lld\n", y, y0, y1);
 
 	y *= y1 - y0;
 
@@ -197,16 +191,12 @@ static long devcts_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = -EFAULT;
 		goto out_ret;
 	}
-
-	pr_info("devcts_ioctl: %u %p\n", cmd, (void*)arg);
-	pr_info("devcts_ioctl: src_ts: %llu\n", req.src_ts);
 	
 	if (cmd == DEVCTS_DEVTOSYS ||
 		cmd == DEVCTS_DEVTODEV) {
 		err = _get_name_user(&srcname, req.src_dev);
 		if (err != 0)
 			goto out_ret;
-		pr_info("devcts_ioctl: src_dev: %s\n", srcname);
 	}
 
 	if (cmd == DEVCTS_SYSTODEV ||
@@ -214,7 +204,6 @@ static long devcts_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = _get_name_user(&dstname, req.dst_dev);
 		if (err != 0)
 			goto out_srcname;
-		pr_info("devcts_ioctl: dst_dev: %s\n", dstname);
 	}
 
 	rcu_read_lock();
@@ -240,8 +229,6 @@ static long devcts_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		!WARN(!srcdev, "Logic error: srcdev is NULL")) {
 		ts = devcts_interpolate_to_sys(srcdev, ts);
 	}
-
-	pr_info("devcts_ioctl: intermediate ts: %llu\n", ktime_to_ns(ts));
 	
 	if ((cmd == DEVCTS_SYSTODEV ||
 		 cmd == DEVCTS_DEVTODEV) &&
@@ -252,8 +239,6 @@ static long devcts_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	req.dst_ts = ktime_to_ns(ts);
 
-	pr_info("devcts_ioctl: dst_ts: %llu\n", req.dst_ts);
-	
 	if (copy_to_user((void*)arg, &req, sizeof(struct devcts_req)) != 0) {
 		err = -EFAULT;
 		goto out_dstname;

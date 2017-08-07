@@ -1197,12 +1197,14 @@ static void rcar_canfd_read_thb(struct net_device *ndev)
 		unsigned ts = (txhist & 0xffff0000) >> 16;
 		if (label >= RCANFD_MAX_PENDING_TXTS ||
 			NULL == priv->txts_skb[label]) {
-			pr_warn_ratelimited("Spurious THB: %.8x\n", txhist);
+			dev_warn_ratelimited(&priv->gpriv->pdev->dev, "Spurious THB: %.8x\n",
+								 txhist);
 		} else {
 			struct skb_shared_hwtstamps shhwtstamps;
 			shhwtstamps.hwtstamp = rcar_canfd_ts_to_ktime(priv->gpriv, ts);
-			if (shhwtstamps.hwtstamp.tv64 == 0)
-				pr_warn("Timestamp is 0! TS: %u\n", ts);
+			if (shhwtstamps.hwtstamp.tv64 == 0) {
+				dev_warn(&priv->gpriv->pdev->dev, "Timestamp is 0! TS: %u\n", ts);
+			}
 			shhwtstamps.hwtstamp = ktime_add_ns(
 				shhwtstamps.hwtstamp,
 				rcar_canfd_calc_frame_time((struct can_frame *)priv->txts_skb[label]->data,
