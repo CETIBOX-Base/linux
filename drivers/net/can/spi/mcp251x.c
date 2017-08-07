@@ -274,6 +274,7 @@ struct mcp251x_priv {
 
 	struct sk_buff *txts_skb[3];
 	u8 pending_tx_ts;
+	ktime_t last_irq;
 };
 
 #define MCP251X_IS(_model) \
@@ -819,7 +820,7 @@ static void mcp251x_can_tx_timestamp(struct mcp251x_priv *priv, u8 intf)
 	struct skb_shared_hwtstamps shhwtstamps;
 	int i;
 	
-	shhwtstamps.hwtstamp = ktime_get();
+	shhwtstamps.hwtstamp = priv->last_irq;
 
 	for(i = 0;i < 3;++i) {
 		if ((intf & priv->pending_tx_ts) & (CANINTF_TX0IF << i)) {
@@ -833,6 +834,16 @@ static void mcp251x_can_tx_timestamp(struct mcp251x_priv *priv, u8 intf)
 			priv->pending_tx_ts &= ~(CANINTF_TX0IF << i);
 		}
 	}
+}
+
+/* hard interrupt: take timestamp for Tx ts, wake threaded handler */
+static irqreturn_t mcp251x_can_interrupt(int irq, void *dev_id)
+{
+	struct mcp251x_priv *priv = dev_id;
+
+	priv->last_irq = ktime_get();
+	
+	return IRQ_WAKE_THREAD;
 }
 
 static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
@@ -991,7 +1002,7 @@ static int mcp251x_open(struct net_device *net)
 	priv->tx_skb = NULL;
 	priv->tx_len = 0;
 
-	ret = request_threaded_irq(spi->irq, NULL, mcp251x_can_ist,
+	ret = request_threaded_irq(spi->irq, mcp251x_can_interrupt, mcp251x_can_ist,
 				   flags | IRQF_ONESHOT, DEVICE_NAME, priv);
 	if (ret) {
 		dev_err(&spi->dev, "failed to acquire irq %d\n", spi->irq);
