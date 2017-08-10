@@ -555,6 +555,8 @@ static int rcar_du_probe(struct platform_device *pdev)
 	if (rcdu->ths_quirks & RCAR_DU_R8A7795_ES1X_INFO_JUDGE)
 		rcdu->info = &rcar_du_r8a7795_es1x_info;
 
+	platform_set_drvdata(pdev, rcdu);
+
 	/* I/O resources */
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	rcdu->mmio = devm_ioremap_resource(&pdev->dev, mem);
@@ -586,8 +588,6 @@ static int rcar_du_probe(struct platform_device *pdev)
 	ret = drm_dev_register(ddev, 0);
 	if (ret)
 		goto error;
-
-	platform_set_drvdata(pdev, rcdu);
 
 	DRM_INFO("Device %s probed\n", dev_name(&pdev->dev));
 
