@@ -357,7 +357,7 @@ static int rcar_csi2_calc_phypll(struct rcar_csi2 *priv,
 	dot_clk = h_freq * vblank;
 
 	if (priv->mf.field != V4L2_FIELD_NONE)
-		dot_clk /= 2;
+		dot_clk = div_u64(dot_clk, 2);
 
 	csi_dbg(priv, "Dot clock %llu Hz\n", dot_clk);
 
@@ -686,7 +686,6 @@ static int rcar_csi2_probe(struct platform_device *pdev)
 	const struct of_device_id *match;
 	unsigned int i;
 	int ret;
-	u32 vc_num;
 	const struct soc_device_attribute *attr;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(struct rcar_csi2), GFP_KERNEL);
@@ -723,7 +722,6 @@ static int rcar_csi2_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	vc_num = priv->vc_num;
 	platform_set_drvdata(pdev, priv);
 
 	priv->subdev.owner = THIS_MODULE;
