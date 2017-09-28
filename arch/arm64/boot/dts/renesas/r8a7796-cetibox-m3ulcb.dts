@@ -353,8 +353,8 @@
 
 //    phy-mode = "rgmii";		// tx ok, rx kapott
 //    phy-mode = "rgmiii-id"; 	// tx ok, rx kapott (100% CRC errors), switch ok
-    phy-mode = "rgmii-rxid";  // tx ok, rx kapott (we have a delay line at SJA1105 rx clock -> we must not add tx delay!)
-//    phy-mode = "rgmii-txid"; 	// tx kapott, rx ?
+//    phy-mode = "rgmii-rxid";  // tx ok, rx kapott (we have a delay line at SJA1105 rx clock -> we must not add tx delay!)
+    phy-mode = "rgmii-txid"; 	// tx kapott, rx ?
 
     phy0: dummy_phy {
         compatible = "ethernet-phy-idFFFF.FFFE";
@@ -597,11 +597,12 @@
 
 	/* Ethernet switch, configured by userspace */
 	spidev@0 {
-		compatible = "renesas,sh-msiof";
+		compatible = "nxp,sja1105";
 		reg = <0>;
 		spi-max-frequency = <66666666>;
 		spi-cpha;
-		spi-cpol;
+		renesas,dtdl = <200>;
+		renesas,syncdl = <300>;
 	};
 	/* The PiCAN board */
 	can2: mcp2515@1 {
