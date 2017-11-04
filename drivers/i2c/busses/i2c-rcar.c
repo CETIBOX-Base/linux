@@ -370,7 +370,8 @@ static void rcar_i2c_dma(struct rcar_i2c_priv *priv)
 
 	/* Do various checks to see if DMA is feasible at all */
 	if (IS_ERR(chan) || msg->len < 8 ||
-	    (read && priv->flags & ID_P_NO_RXDMA))
+	    (read && priv->flags & ID_P_NO_RXDMA) ||
+		!(msg->flags & I2C_M_DMA_SAFE))
 		return;
 
 	if (read) {
