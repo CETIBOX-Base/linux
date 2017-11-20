@@ -2092,18 +2092,11 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	}
 #endif
 
+#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
-
-#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 0)
-		enum of_gpio_flags enable_flags, standby_flags;
-		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
-#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
-
 		err = rcar_canfd_channel_probe(gpriv, ch, fcan_freq);
 		if (err)
 			goto fail_channel;
-
-#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
 	}
 
 	gpriv->enable_pin = of_get_gpio_flags(pdev->dev.of_node, 0, &enable_flags);
@@ -2114,9 +2107,33 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 			GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
 			ret = devm_gpio_request_one(&pdev->dev, gpriv->enable_pin, val, "enable");
 			if (ret)
-				dev_info(&pdev->dev, "Failed to request enable pin \n");
+				dev_info(&pdev->dev, "Failed to request enable pin %u\n", gpriv->enable_pin);
+			else
+				dev_info(&pdev->dev, "Successfully requested enable pin %u\n", gpriv->enable_pin);
 	}
-#else
+	else
+	{
+		dev_info(&pdev->dev, "No global enable pin defined. \n");
+	}
+
+	if (gpio_is_valid(gpriv->standby_pin)) {
+		int val = standby_flags & OF_GPIO_ACTIVE_LOW ?
+			GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
+
+		/* transceiver standby mode */
+		ret = devm_gpio_request_one(&pdev->dev, gpriv->standby_pin, val, "standby");
+		if (ret)
+			dev_info(&pdev->dev, "Failed to request standby pin\n");
+	}
+#else /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 0 */
+	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
+		enum of_gpio_flags enable_flags, standby_flags;
+		struct device_node *of_node = ch == 0 ? of_child0 : of_child1;
+
+		err = rcar_canfd_channel_probe(gpriv, ch, fcan_freq);
+		if (err)
+			goto fail_channel;
+
 		gpriv->ch[ch]->enable_pin = of_get_gpio_flags(of_node, 0,
 							      &enable_flags);
 		if (gpio_is_valid(gpriv->ch[ch]->enable_pin)) {
@@ -2128,17 +2145,7 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 			if (ret)
 				dev_info(&pdev->dev, "Failed to request enable pin of can%u\n", ch);
 		}
-#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
 
-#if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
-		if (gpio_is_valid(gpriv->standby_pin)) {
-			int val = standby_flags & OF_GPIO_ACTIVE_LOW ?
-				GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH;
-		/* transceiver standby mode */
-		ret = devm_gpio_request_one(&pdev->dev, gpriv->standby_pin, val, "standby");
-		if (ret)
-			dev_info(&pdev->dev, "Failed to request standby pin\n");
-#else
 		gpriv->ch[ch]->standby_pin = of_get_gpio_flags(of_node, 1,
 							       &standby_flags);
 		if (gpio_is_valid(gpriv->ch[ch]->standby_pin)) {
@@ -2151,9 +2158,8 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 			if (ret)
 				dev_info(&pdev->dev, "Failed to request standby pin of can%u\n", ch);
 		}
-#endif
-
 	}
+#endif /* RCANFD_GLOBAL_TRANSCEIVER_CONTROL */
 
 	platform_set_drvdata(pdev, gpriv);
 	dev_info(&pdev->dev, "global operational state (clk %d, fdmode %d)\n",
