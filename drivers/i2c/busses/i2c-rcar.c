@@ -2,7 +2,7 @@
  * Driver for the Renesas RCar I2C unit
  *
  * Copyright (C) 2014-15 Wolfram Sang <wsa@sang-engineering.com>
- * Copyright (C) 2011-2015 Renesas Electronics Corporation
+ * Copyright (C) 2011-2017 Renesas Electronics Corporation
  *
  * Copyright (C) 2012-14 Renesas Solutions Corp.
  * Kuninori Morimoto <kuninori.morimoto.gx@renesas.com>
@@ -30,6 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
@@ -141,6 +142,10 @@ struct rcar_i2c_priv {
 	struct scatterlist sg;
 	enum dma_data_direction dma_direction;
 	int suspended;
+
+	u32 reset_bit;
+	void __iomem *srcr;
+	void __iomem *srstclr;
 };
 
 #define rcar_i2c_priv_to_dev(p)		((p)->adap.dev.parent)
@@ -312,15 +317,18 @@ static void rcar_i2c_dma_unmap(struct rcar_i2c_priv *priv)
 {
 	struct dma_chan *chan = priv->dma_direction == DMA_FROM_DEVICE
 		? priv->dma_rx : priv->dma_tx;
+	struct i2c_msg *msg = priv->msg;
+	bool read = msg->flags & I2C_M_RD;
+	u32 len = read ? (priv->msg->len - 2) : (priv->msg->len - 1);
 
-	/* Disable DMA Master Received/Transmitted */
-	rcar_i2c_write(priv, ICDMAER, 0);
+	dma_unmap_single(chan->device->dev, sg_dma_address(&priv->sg),
+			 len, priv->dma_direction);
 
 	/* Reset default delay */
 	rcar_i2c_write(priv, ICFBSCR, TCYC06);
 
-	dma_unmap_single(chan->device->dev, sg_dma_address(&priv->sg),
-			 priv->msg->len, priv->dma_direction);
+	/* Disable DMA Master Received/Transmitted */
+	rcar_i2c_write(priv, ICDMAER, 0);
 
 	priv->dma_direction = DMA_NONE;
 }
@@ -420,6 +428,16 @@ static void rcar_i2c_dma(struct rcar_i2c_priv *priv)
 	dma_async_issue_pending(chan);
 }
 
+static int rcar_i2c_is_dma(struct rcar_i2c_priv *priv)
+{
+	struct i2c_msg *msg = priv->msg;
+	bool read = msg->flags & I2C_M_RD;
+	struct dma_chan *chan = read ? priv->dma_rx : priv->dma_tx;
+
+	/* Do not use DMA if it's not available or for messages < 8 bytes */
+	return !(IS_ERR(chan) || msg->len < 8);
+}
+
 static void rcar_i2c_irq_send(struct rcar_i2c_priv *priv, u32 msr)
 {
 	struct i2c_msg *msg = priv->msg;
@@ -429,22 +447,24 @@ static void rcar_i2c_irq_send(struct rcar_i2c_priv *priv, u32 msr)
 		return;
 
 	if (priv->pos < msg->len) {
-		/*
-		 * Prepare next data to ICRXTX register.
-		 * This data will go to _SHIFT_ register.
-		 *
-		 *    *
-		 * [ICRXTX] -> [SHIFT] -> [I2C bus]
-		 */
-		rcar_i2c_write(priv, ICRXTX, msg->buf[priv->pos]);
-		priv->pos++;
-
-		/*
-		 * Try to use DMA to transmit the rest of the data if
-		 * address transfer pashe just finished.
-		 */
-		if (msr & MAT)
+		if (priv->pos == 0 || !rcar_i2c_is_dma(priv)) {
+			/*
+			 * Prepare next data to ICRXTX register.
+			 * This data will go to _SHIFT_ register.
+			 *
+			 *    *
+			 * [ICRXTX] -> [SHIFT] -> [I2C bus]
+			 */
+			rcar_i2c_write(priv, ICRXTX, msg->buf[priv->pos]);
+			priv->pos++;
+		} else {
+			/*
+			 * Try to use DMA to transmit the rest of the data if
+			 * address transfer pashe just finished.
+			 */
 			rcar_i2c_dma(priv);
+			return;
+		}
 	} else {
 		/*
 		 * The last data was pushed to ICRXTX on _PREV_ empty irq.
@@ -490,12 +510,8 @@ static void rcar_i2c_irq_recv(struct rcar_i2c_priv *priv, u32 msr)
 		priv->pos++;
 	}
 
-	/*
-	 * If next received data is the _LAST_, go to STOP phase. Might be
-	 * overwritten by REP START when setting up a new msg. Not elegant
-	 * but the only stable sequence for REP START I have found so far.
-	 */
-	if (priv->pos + 1 >= msg->len)
+	/* If next received data is the _LAST_, go to STOP phase. */
+	if (priv->pos + 1 == msg->len && (priv->flags & ID_LAST_MSG))
 		rcar_i2c_write(priv, ICMCR, RCAR_BUS_PHASE_STOP);
 
 	if (priv->pos == msg->len && !(priv->flags & ID_LAST_MSG))
@@ -690,6 +706,15 @@ static void rcar_i2c_release_dma(struct rcar_i2c_priv *priv)
 	}
 }
 
+static void rcar_i2c_reset(struct rcar_i2c_priv *priv)
+{
+	/* I2C module reset and reset clean */
+	writel(priv->reset_bit, priv->srcr);
+	writel(priv->reset_bit, priv->srstclr);
+	udelay(1);
+	rcar_i2c_init(priv);
+}
+
 static int rcar_i2c_master_xfer(struct i2c_adapter *adap,
 				struct i2c_msg *msgs,
 				int num)
@@ -703,6 +728,9 @@ static int rcar_i2c_master_xfer(struct i2c_adapter *adap,
 		return -EBUSY;
 
 	pm_runtime_get_sync(dev);
+
+	if (priv->srcr && priv->srstclr)
+		rcar_i2c_reset(priv);
 
 	ret = rcar_i2c_bus_barrier(priv);
 	if (ret < 0)
@@ -807,6 +835,7 @@ static const struct of_device_id rcar_i2c_dt_ids[] = {
 	{ .compatible = "renesas,i2c-r8a7794", .data = (void *)I2C_RCAR_GEN2 },
 	{ .compatible = "renesas,i2c-r8a7795", .data = (void *)I2C_RCAR_GEN3 },
 	{ .compatible = "renesas,i2c-r8a7796", .data = (void *)I2C_RCAR_GEN3 },
+	{ .compatible = "renesas,i2c-r8a77965", .data = (void *)I2C_RCAR_GEN3 },
 	{},
 };
 MODULE_DEVICE_TABLE(of, rcar_i2c_dt_ids);
@@ -818,6 +847,8 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct i2c_timings i2c_t;
 	int irq, ret;
+	struct of_phandle_args args;
+	struct resource res;
 
 	priv = devm_kzalloc(dev, sizeof(struct rcar_i2c_priv), GFP_KERNEL);
 	if (!priv)
@@ -860,6 +891,35 @@ static int rcar_i2c_probe(struct platform_device *pdev)
 	ret = rcar_i2c_clock_calculate(priv, &i2c_t);
 	if (ret < 0)
 		goto out_pm_put;
+
+	ret = of_parse_phandle_with_fixed_args(dev->of_node,
+					       "renesas,cpg-mssr-resets",
+					       3, 0, &args);
+	if (ret == 0) {
+		ret = of_address_to_resource(args.np, 0, &res);
+		if (ret < 0) {
+			dev_warn(dev, "can not get cpg-mssr resource\n");
+			goto out_pm_put;
+		} else {
+			priv->srcr = devm_ioremap_nocache(dev,
+						res.start + args.args[0],
+						0x04);
+			if (!priv->srcr) {
+				dev_warn(dev, "can not get reset register\n");
+				ret = -ENOMEM;
+				goto out_pm_put;
+			}
+			priv->srstclr = devm_ioremap_nocache(dev,
+						res.start + args.args[1],
+						0x04);
+			if (!priv->srstclr) {
+				dev_warn(dev, "can not get reset clearing register\n");
+				ret = -ENOMEM;
+				goto out_pm_put;
+			}
+			priv->reset_bit = BIT(args.args[2]);
+		}
+	}
 
 	rcar_i2c_init(priv);
 

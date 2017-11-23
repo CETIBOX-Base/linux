@@ -185,6 +185,15 @@
 			};
 		};
 	};
+
+	avb-mch {
+		compatible = "renesas,avb-mch-gen3";
+		reg =	<0 0xec5a0100 0 0x100>;  /* ADG_AVB */
+		reg-name = "adg_avb";
+
+		clocks = <&cpg CPG_MOD 922>;
+		clock-names = "adg";
+	};
 };
 
 &extal_clk {
@@ -236,13 +245,13 @@
 	};
 
 	sdhi2_pins: sd2 {
-		groups = "sdhi2_data8", "sdhi2_ctrl";
+		groups = "sdhi2_data8", "sdhi2_ctrl", "sdhi2_ds";
 		function = "sdhi2";
 		power-source = <3300>;
 	};
 
 	sdhi2_pins_uhs: sd2_uhs {
-		groups = "sdhi2_data8", "sdhi2_ctrl";
+		groups = "sdhi2_data8", "sdhi2_ctrl", "sdhi2_ds";
 		function = "sdhi2";
 		power-source = <1800>;
 	};
@@ -277,6 +286,7 @@
 	phy-handle = <&phy0>;
 	status = "okay";
 	phy-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
+	phy-reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>;
 
 	phy0: ethernet-phy@0 {
 		rxc-skew-ps = <1500>;

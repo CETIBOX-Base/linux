@@ -1049,41 +1049,6 @@ int drm_atomic_helper_wait_for_fences(struct drm_device *dev,
 EXPORT_SYMBOL(drm_atomic_helper_wait_for_fences);
 
 /**
- * drm_atomic_helper_framebuffer_changed - check if framebuffer has changed
- * @dev: DRM device
- * @old_state: atomic state object with old state structures
- * @crtc: DRM crtc
- *
- * Checks whether the framebuffer used for this CRTC changes as a result of
- * the atomic update.  This is useful for drivers which cannot use
- * drm_atomic_helper_wait_for_vblanks() and need to reimplement its
- * functionality.
- *
- * Returns:
- * true if the framebuffer changed.
- */
-bool drm_atomic_helper_framebuffer_changed(struct drm_device *dev,
-					   struct drm_atomic_state *old_state,
-					   struct drm_crtc *crtc)
-{
-	struct drm_plane *plane;
-	struct drm_plane_state *old_plane_state;
-	int i;
-
-	for_each_plane_in_state(old_state, plane, old_plane_state, i) {
-		if (plane->state->crtc != crtc &&
-		    old_plane_state->crtc != crtc)
-			continue;
-
-		if (plane->state->fb != old_plane_state->fb)
-			return true;
-	}
-
-	return false;
-}
-EXPORT_SYMBOL(drm_atomic_helper_framebuffer_changed);
-
-/**
  * drm_atomic_helper_wait_for_vblanks - wait for vblank on crtcs
  * @dev: DRM device
  * @old_state: atomic state object with old state structures
@@ -1114,10 +1079,6 @@ drm_atomic_helper_wait_for_vblanks(struct drm_device *dev,
 		/* Legacy cursor ioctls are completely unsynced, and userspace
 		 * relies on that (by doing tons of cursor updates). */
 		if (old_state->legacy_cursor_update)
-			continue;
-
-		if (!drm_atomic_helper_framebuffer_changed(dev,
-				old_state, crtc))
 			continue;
 
 		ret = drm_crtc_vblank_get(crtc);
@@ -1233,7 +1194,7 @@ static void commit_tail(struct drm_atomic_state *state)
 
 	drm_atomic_helper_commit_cleanup_done(state);
 
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 }
 
 static void commit_work(struct work_struct *work)
@@ -1317,6 +1278,7 @@ int drm_atomic_helper_commit(struct drm_device *dev,
 	 * make sure work items don't artifically stall on each another.
 	 */
 
+	drm_atomic_state_get(state);
 	if (nonblock)
 		queue_work(system_unbound_wq, &state->commit_work);
 	else
@@ -1629,7 +1591,7 @@ EXPORT_SYMBOL(drm_atomic_helper_commit_hw_done);
  *
  * This signals completion of the atomic update @state, including any cleanup
  * work. If used, it must be called right before calling
- * drm_atomic_state_free().
+ * drm_atomic_state_put().
  *
  * This is part of the atomic helper support for nonblocking commits, see
  * drm_atomic_helper_setup_commit() for an overview.
@@ -1700,9 +1662,6 @@ int drm_atomic_helper_prepare_planes(struct drm_device *dev,
 
 		funcs = plane->helper_private;
 
-		if (!drm_atomic_helper_framebuffer_changed(dev, state, plane_state->crtc))
-			continue;
-
 		if (funcs->prepare_fb) {
 			ret = funcs->prepare_fb(plane, plane_state);
 			if (ret)
@@ -1717,9 +1676,6 @@ fail:
 		const struct drm_plane_helper_funcs *funcs;
 
 		if (j >= i)
-			continue;
-
-		if (!drm_atomic_helper_framebuffer_changed(dev, state, plane_state->crtc))
 			continue;
 
 		funcs = plane->helper_private;
@@ -1988,9 +1944,6 @@ void drm_atomic_helper_cleanup_planes(struct drm_device *dev,
 	for_each_plane_in_state(old_state, plane, plane_state, i) {
 		const struct drm_plane_helper_funcs *funcs;
 
-		if (!drm_atomic_helper_framebuffer_changed(dev, old_state, plane_state->crtc))
-			continue;
-
 		funcs = plane->helper_private;
 
 		if (funcs->cleanup_fb)
@@ -2152,18 +2105,13 @@ retry:
 		state->legacy_cursor_update = true;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2225,18 +2173,13 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2365,18 +2308,13 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2518,11 +2456,8 @@ int drm_atomic_helper_disable_all(struct drm_device *dev,
 	}
 
 	err = drm_atomic_commit(state);
-
 free:
-	if (err < 0)
-		drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return err;
 }
 EXPORT_SYMBOL(drm_atomic_helper_disable_all);
@@ -2573,7 +2508,7 @@ retry:
 
 	err = drm_atomic_helper_disable_all(dev, &ctx);
 	if (err < 0) {
-		drm_atomic_state_free(state);
+		drm_atomic_state_put(state);
 		state = ERR_PTR(err);
 		goto unlock;
 	}
@@ -2662,18 +2597,13 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2722,18 +2652,13 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2782,18 +2707,13 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2866,18 +2786,13 @@ retry:
 	}
 
 	ret = drm_atomic_nonblocking_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -2953,19 +2868,14 @@ retry:
 	crtc_state->active = active;
 
 	ret = drm_atomic_commit(state);
-	if (ret != 0)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
 	connector->dpms = old_mode;
-	drm_atomic_state_free(state);
-
+	drm_atomic_state_put(state);
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);
@@ -3374,7 +3284,7 @@ drm_atomic_helper_duplicate_state(struct drm_device *dev,
 
 free:
 	if (err < 0) {
-		drm_atomic_state_free(state);
+		drm_atomic_state_put(state);
 		state = ERR_PTR(err);
 	}
 
@@ -3489,22 +3399,14 @@ retry:
 		goto fail;
 
 	ret = drm_atomic_commit(state);
-	if (ret)
-		goto fail;
-
-	/* Driver takes ownership of state on successful commit. */
-
-	drm_property_unreference_blob(blob);
-
-	return 0;
 fail:
 	if (ret == -EDEADLK)
 		goto backoff;
 
-	drm_atomic_state_free(state);
+	drm_atomic_state_put(state);
 	drm_property_unreference_blob(blob);
-
 	return ret;
+
 backoff:
 	drm_atomic_state_clear(state);
 	drm_atomic_legacy_backoff(state);

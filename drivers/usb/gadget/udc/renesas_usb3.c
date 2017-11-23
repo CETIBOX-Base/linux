@@ -251,7 +251,7 @@
 #define USB3_EP0_SS_MAX_PACKET_SIZE	512
 #define USB3_EP0_HSFS_MAX_PACKET_SIZE	64
 #define USB3_EP0_BUF_SIZE		8
-#define USB3_MAX_NUM_PIPES		30
+#define USB3_MAX_NUM_PIPES		6	/* This includes PIPE 0 */
 #define USB3_WAIT_US			3
 #define USB3_DMA_NUM_SETTING_AREA	4
 /*
@@ -2457,6 +2457,13 @@ static const struct renesas_usb3_priv renesas_usb3_priv_r8a7796 = {
 	.workaround_for_vbus = true,
 };
 
+static const struct renesas_usb3_priv renesas_usb3_priv_r8a77965 = {
+	.ramsize_per_ramif = SZ_16K,
+	.num_ramif = 4,
+	.ramsize_per_pipe = SZ_4K,
+	.workaround_for_vbus = true,
+};
+
 static const struct of_device_id usb3_of_match[] = {
 	{
 		.compatible = "renesas,r8a7795-usb3-peri",
@@ -2464,6 +2471,10 @@ static const struct of_device_id usb3_of_match[] = {
 	},
 	{
 		.compatible = "renesas,r8a7796-usb3-peri",
+		.data = &renesas_usb3_priv_r8a7796,
+	},
+	{
+		.compatible = "renesas,r8a77965-usb3-peri",
 		.data = &renesas_usb3_priv_r8a7796,
 	},
 	{ },

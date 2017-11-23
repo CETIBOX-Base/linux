@@ -1078,6 +1078,19 @@ static void ravb_phy_reset(struct net_device *ndev)
 	struct platform_device *pdev = priv->pdev;
 	struct device_node *np = ndev->dev.parent->of_node;
 	int ret, gpio, has_phy_reset_gpio = priv->has_phy_reset_gpio;
+	struct device_node *pn;
+	struct phy_device *phydev;
+
+	pn = of_parse_phandle(np, "phy-handle", 0);
+	if (IS_ERR_OR_NULL(pn))
+		return;
+
+	phydev = of_phy_find_device(pn);
+	if (IS_ERR_OR_NULL(phydev))
+		return;
+
+	if (phy_read(phydev, MII_BMSR) & BMSR_LSTATUS)
+		return;
 
 	gpio = of_get_named_gpio(np, "phy-reset-gpios", 0);
 	if (gpio_is_valid(gpio)) {
@@ -1908,6 +1921,7 @@ static const struct of_device_id ravb_match_table[] = {
 	{ .compatible = "renesas,etheravb-rcar-gen2", .data = (void *)RCAR_GEN2 },
 	{ .compatible = "renesas,etheravb-r8a7795", .data = (void *)RCAR_GEN3 },
 	{ .compatible = "renesas,etheravb-r8a7796", .data = (void *)RCAR_GEN3 },
+	{ .compatible = "renesas,etheravb-r8a77965", .data = (void *)RCAR_GEN3 },
 	{ .compatible = "renesas,etheravb-rcar-gen3", .data = (void *)RCAR_GEN3 },
 	{ }
 };
@@ -2091,9 +2105,6 @@ static int ravb_probe(struct platform_device *pdev)
 	ndev->netdev_ops = &ravb_netdev_ops;
 	ndev->ethtool_ops = &ravb_ethtool_ops;
 
-	/* phy reset */
-	ravb_phy_reset(ndev);
-
 	/* Set AVB config mode */
 	ravb_set_config_mode(ndev);
 
@@ -2161,6 +2172,9 @@ static int ravb_probe(struct platform_device *pdev)
 		    (u32)ndev->base_addr, ndev->dev_addr, ndev->irq);
 
 	platform_set_drvdata(pdev, ndev);
+
+	/* phy reset */
+	ravb_phy_reset(ndev);
 
 	return 0;
 
