@@ -6,6 +6,7 @@ dtb-$(CONFIG_ARCH_R8A7796) += r8a7796-salvator-xs.dtb
 dtb-$(CONFIG_ARCH_R8A77965) += r8a77965-salvator-x.dtb
 dtb-$(CONFIG_ARCH_R8A77965) += r8a77965-salvator-xs.dtb
 dtb-$(CONFIG_ARCH_R8A7796) += r8a7796-cetibox-m3ulcb.dtb
+dtb-$(CONFIG_ARCH_R8A7796) += r8a7796-cetibox-m3ulcb-gweb-v1.dtb
 
 always		:= $(dtb-y)
 clean-files	:= *.dtb
