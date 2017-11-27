@@ -529,12 +529,12 @@
 	clock-frequency = <66666666>;
 };
 
-/* The clock on PiCAN board */
+/* The clock for the MCP2515. */
 / {
 	can2_osc: can2_osc {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
-		clock-frequency  = <16000000>;
+		clock-frequency  = <20000000>;
 	};
 };
 
@@ -639,7 +639,7 @@
 	renesas,no-can-fd; /* makes the driver to put controller into classic CAN mode */
 	renesas,tss-tsp = <128>; /* Set timestamp divider to 128 */
 
-	gpios = <&gpio5 13 GPIO_ACTIVE_HIGH /* enable - shared with camera board */
+	gpios = <&gpio5 13 GPIO_ACTIVE_HIGH /* enable */
 		&gpio5 14 GPIO_ACTIVE_LOW /* standby */
 		>;
 
