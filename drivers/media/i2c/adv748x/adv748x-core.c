@@ -751,14 +751,12 @@ static int adv748x_parse_dt(struct adv748x_state *state)
 		of_graph_parse_endpoint(ep_np, &ep);
 
 		v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep_np), &v4l2_ep);
-		adv_info(state, "Endpoint %s on port %d",
-				of_node_full_name(ep.local_node),
-				ep.port);
+		adv_info(state, "Endpoint %pOF on port %d", ep.local_node,
+			 ep.port);
 
 		if (ep.port >= ADV748X_PORT_MAX) {
-			adv_err(state, "Invalid endpoint %s on port %d",
-				of_node_full_name(ep.local_node),
-				ep.port);
+			adv_err(state, "Invalid endpoint %pOF on port %d",
+				ep.local_node, ep.port);
 
 			continue;
 		}
