@@ -359,6 +359,7 @@
     phy0: dummy_phy {
         compatible = "ethernet-phy-idFFFF.FFFE";
         reg = <0>;
+		speed = <100>;
     };
 };
 
