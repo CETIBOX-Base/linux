@@ -575,6 +575,10 @@
 	status = "okay";
 };
 
+&xhci0 {
+	status = "okay";
+};
+
 &msiof_ref_clk {
 	clock-frequency = <66666666>;
 };
