@@ -3011,6 +3011,8 @@ out:
 	return skb;
 }
 
+EXPORT_SYMBOL(dev_hard_start_xmit);
+
 static struct sk_buff *validate_xmit_vlan(struct sk_buff *skb,
 					  netdev_features_t features)
 {
