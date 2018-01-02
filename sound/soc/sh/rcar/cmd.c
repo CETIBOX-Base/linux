@@ -32,11 +32,7 @@ static int rsnd_cmd_init(struct rsnd_mod *mod,
 	struct device *dev = rsnd_priv_to_dev(priv);
 	u32 data;
 	u32 path[] = {
-		[0] = 0,
 		[1] = 1 << 0,
-		[2] = 0,
-		[3] = 0,
-		[4] = 0,
 		[5] = 1 << 8,
 		[6] = 1 << 12,
 		[9] = 1 << 15,
