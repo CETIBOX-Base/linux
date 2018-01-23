@@ -177,7 +177,7 @@
 		compatible = "renesas,vspm_if";
 	};
 
-	hdmi-out {
+	hdmi0-out {
 		compatible = "hdmi-connector";
 		type = "a";
 
@@ -188,7 +188,7 @@
 		};
 	};
 
-	hdmi-out {
+	hdmi1-out {
 		 compatible = "hdmi-connector";
 		 type = "a";
 
@@ -360,6 +360,10 @@
 };
 
 &du_dotclkin2 {
+	clock-frequency = <33000000>;
+};
+
+&du_dotclkin3 {
 	clock-frequency = <108000000>;
 };
 
@@ -372,7 +376,6 @@
 				remote-endpoint = <&rcar_dw_hdmi0_in>;
 			};
 		};
-
 		port@2 {
 			endpoint {
 				remote-endpoint = <&rcar_dw_hdmi1_in>;
@@ -382,8 +385,7 @@
 };
 
 &hdmi0 {
-	status = "okay";
-
+	status = "disabled";
 	ports {
 		#address-cells = <1>;
 		#size-cells = <0>;
