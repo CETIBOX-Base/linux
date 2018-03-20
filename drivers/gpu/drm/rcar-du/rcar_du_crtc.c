@@ -558,10 +558,10 @@ static void rcar_du_crtc_stop(struct rcar_du_crtc *rcrtc)
 	struct drm_crtc *crtc = &rcrtc->crtc;
 
 	/* Disable all planes and wait for the change to take effect. This is
-	 * required as the DSnPR registers are updated on vblank, and no vblank
-	 * will occur once the CRTC is stopped. Disabling planes when starting
-	 * the CRTC thus wouldn't be enough as it would start scanning out
-	 * immediately from old frame buffers until the next vblank.
+         * required as the plane enable registers are updated on vblank, and no
+         * vblank will occur once the CRTC is stopped. Disabling planes when
+         * starting the CRTC thus wouldn't be enough as it would start scanning
+         * out immediately from old frame buffers until the next vblank.
 	 *
 	 * This increases the CRTC stop delay, especially when multiple CRTCs
 	 * are stopped in one operation as we now wait for one vblank per CRTC.
