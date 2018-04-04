@@ -454,8 +454,6 @@ unmap_release:
 		i = virtio16_to_cpu(_vq->vdev, vq->vring.desc[i].next);
 	}
 
-	vq->vq.num_free += total_sg;
-
 	if (indirect)
 		kfree(desc);
 

@@ -723,7 +723,13 @@ static int __maybe_unused vsp1_pm_suspend(struct device *dev)
 {
 	struct vsp1_device *vsp1 = dev_get_drvdata(dev);
 
-	vsp1_pipelines_suspend(vsp1);
+	/*
+	 * When used as part of a display pipeline, the VSP is stopped and
+	 * restarted explicitly by the DU.
+	 */
+	if (!vsp1->drm)
+		vsp1_pipelines_suspend(vsp1);
+
 	pm_runtime_force_suspend(vsp1->dev);
 
 	return 0;
@@ -736,8 +742,8 @@ static int __maybe_unused vsp1_pm_resume(struct device *dev)
 	pm_runtime_force_resume(vsp1->dev);
 
 	/*
-	 * DRM pipelines are stopped before suspend, and will be resumed after
-	 * the DRM subsystem has reconfigured its pipeline with an atomic flush
+	 * When used as part of a display pipeline, the VSP is stopped and
+	 * restarted explicitly by the DU.
 	 */
 	if (!vsp1->drm)
 		vsp1_pipelines_resume(vsp1);
