@@ -37,6 +37,8 @@
 
 #define DVC_NAME "dvc"
 
+#define NEW_MAX_VOLUME_VALUE 0x9999A
+
 struct rsnd_dvc {
 	struct rsnd_mod mod;
 	struct rsnd_kctrl_cfg_m volume;
@@ -241,7 +243,7 @@ static int rsnd_dvc_pcm_new(struct rsnd_mod *mod,
 			rsnd_kctrl_accept_anytime,
 			rsnd_dvc_volume_update,
 			&dvc->volume, channels,
-			0x00800000 - 1);
+			NEW_MAX_VOLUME_VALUE);
 	if (ret < 0)
 		return ret;
 
