@@ -459,7 +459,7 @@ static int ravb_dmac_init(struct net_device *ndev)
 	ravb_write(ndev, RCR_EFFS | RCR_ETS0 | /* RCR_ESF | */ 0x18000000, RCR);
 
 	/* Set FIFO size */
-	ravb_write(ndev, TGC_TQP_AVBMODE1 | 0x00222200, TGC);
+	ravb_write(ndev, TGC_TQP_AVBMODE1 | 0x00112200, TGC);
 
 	/* Timestamp enable */
 	ravb_write(ndev, TCCR_TFEN, TCCR);
@@ -721,10 +721,10 @@ static void ravb_error_interrupt(struct net_device *ndev)
 	u32 eis, ris2;
 
 	eis = ravb_read(ndev, EIS);
-	ravb_write(ndev, ~(EIS_QFS | EIS_RESERVED_BIT), EIS);
+	ravb_write(ndev, ~(EIS_QFS | EIS_RESERVED), EIS);
 	if (eis & EIS_QFS) {
 		ris2 = ravb_read(ndev, RIS2);
-		ravb_write(ndev, ~(RIS2_QFF0 | RIS2_RFFF | RIS2_RESERVED_BIT),
+		ravb_write(ndev, ~(RIS2_QFF0 | RIS2_RFFF | RIS2_RESERVED),
 			   RIS2);
 
 		/* Receive Descriptor Empty int */
@@ -788,6 +788,7 @@ static irqreturn_t ravb_interrupt(int irq, void *dev_id)
 	if (iss & (ISS_FRS | ISS_FTS)) {
 		int q;
 
+
 		/* Network control and best effort queue RX/TX */
 		for (q = RAVB_NC; q >= RAVB_BE; q--) {
 			if (ravb_queue_interrupt(ndev, q))
@@ -827,6 +828,7 @@ static irqreturn_t ravb_multi_interrupt(int irq, void *dev_id)
 	spin_lock(&priv->lock);
 	/* Get interrupt status */
 	iss = ravb_read(ndev, ISS);
+
 
 	/* Error status summary */
 	if (iss & ISS_ES) {
@@ -889,19 +891,18 @@ static int ravb_poll(struct napi_struct *napi, int budget)
 		/* Processing RX Descriptor Ring */
 		if (ris0 & mask) {
 			/* Clear RX interrupt */
-			ravb_write(ndev, ~(mask | RIS0_RESERVED_BIT), RIS0);
+			ravb_write(ndev, ~(mask | RIS0_RESERVED), RIS0);
 			if (ravb_rx(ndev, &quota, q))
 				goto out;
 		}
 		/* Processing TX Descriptor Ring */
 		if (tis & mask) {
+			spin_lock_irqsave(&priv->lock, flags);
 			/* Timestamp updated */
 			if (q == RAVB_NC)
 				ravb_get_tx_tstamp(ndev);
-
-			spin_lock_irqsave(&priv->lock, flags);
 			/* Clear TX interrupt */
-			ravb_write(ndev, ~(mask | TIS_RESERVED_BIT), TIS);
+			ravb_write(ndev, ~(mask | TIS_RESERVED), TIS);
 			ravb_tx_free(ndev, q, true);
 			netif_wake_subqueue(ndev, q);
 			mmiowb();
@@ -1588,6 +1589,7 @@ static netdev_tx_t ravb_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc->die_dt = DT_FEND;
 		desc--;
 		desc->die_dt = DT_FSTART;
+
 	} else {
 		desc->die_dt = DT_FSINGLE;
 	}
@@ -2188,6 +2190,7 @@ static int ravb_wol_setup(struct net_device *ndev)
 	/* Enable MagicPacket */
 	ravb_modify(ndev, ECMR, ECMR_MPDE, ECMR_MPDE);
 
+
 	return enable_irq_wake(priv->emac_irq);
 }
 
@@ -2205,6 +2208,7 @@ static int ravb_wol_restore(struct net_device *ndev)
 	ret = ravb_close(ndev);
 	if (ret < 0)
 		return ret;
+
 
 	return disable_irq_wake(priv->emac_irq);
 }

@@ -746,17 +746,18 @@ static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	} else
 		ifindex = ro->ifindex;
 
-	if (ro->fd_frames) {
-		if (unlikely(size != CANFD_MTU && size != CAN_MTU))
-			return -EINVAL;
-	} else {
-		if (unlikely(size != CAN_MTU))
-			return -EINVAL;
-	}
-
 	dev = dev_get_by_index(sock_net(sk), ifindex);
 	if (!dev)
 		return -ENXIO;
+
+	err = -EINVAL;
+	if (ro->fd_frames && dev->mtu == CANFD_MTU) {
+		if (unlikely(size != CANFD_MTU && size != CAN_MTU))
+			goto put_dev;
+	} else {
+		if (unlikely(size != CAN_MTU))
+			goto put_dev;
+	}
 
 	sockc.tsflags = sk->sk_tsflags;
 	if (msg->msg_controllen) {
@@ -810,7 +811,7 @@ static int raw_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	struct sk_buff *skb;
 	int err = 0;
 	int noblock;
-
+	
 	if (flags & MSG_ERRQUEUE) {
 		err = sock_recv_errqueue(sk, msg, size,
 								 SOL_SOCKET, SO_ERROR);
