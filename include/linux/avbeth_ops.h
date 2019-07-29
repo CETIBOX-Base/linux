@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 CETITEC GmbH. All Rights Reserved.
+ * Copyright (C) 2017-2020 CETITEC GmbH. All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +31,6 @@ typedef enum {
 	ctc_avbeth_none = 0
 } ctc_avbeth_class_t;
 
-
 struct ctc_avbeth_ops {
 	/* Either get_ethts or get_ethts_and_systs must be implemented. */
 
@@ -41,23 +40,20 @@ struct ctc_avbeth_ops {
 	/* Write correlated current ethernet HW timestamp to ethts and current
 	   system TS to systs. Timestamp unit is ns */
 	int (*get_ethts_and_systs)(struct net_device *netdev, u_int64_t *ethts,
-							   ktime_t *systs);
+				   ktime_t *systs);
 
 	int (*get_queue_for_class)(struct net_device *netdev,
-							   ctc_avbeth_class_t class,
-							   ctc_avbeth_queue_t *queue);
+				   ctc_avbeth_class_t class,
+				   ctc_avbeth_queue_t *queue);
 
-	int (*queue_add_vlan)(struct net_device *netdev, ctc_avbeth_queue_t queue,
-						  u_int16_t vlan_mask, u_int16_t vlan_match);
+	int (*queue_add_vlan)(struct net_device *netdev,
+			      ctc_avbeth_queue_t queue, u_int16_t vlan_mask,
+			      u_int16_t vlan_match);
 	int (*queue_remove_vlan)(struct net_device *netdev, u_int16_t vlan_mask,
-							 u_int16_t vlan_match);
+				 u_int16_t vlan_match);
 
 	int (*queue_adjust_shaper)(struct net_device *netdev,
-							   ctc_avbeth_queue_t queue, int32_t bytes);
-
-
+				   ctc_avbeth_queue_t queue, int32_t bytes);
 };
-
-
 
 #endif // #ifndef avbeth_ops_h_
