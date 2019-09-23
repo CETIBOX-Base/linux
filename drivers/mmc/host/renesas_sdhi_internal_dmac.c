@@ -49,10 +49,13 @@
 
 /* DM_CM_INFO1 and DM_CM_INFO1_MASK */
 #define INFO1_CLEAR		0
-#define INFO1_DTRANEND1		BIT(17)
+#define INFO1_MASK_CLEAR        GENMASK_ULL(31, 0)
+#define INFO1_DTRANEND1_BIT20	BIT(20)
+#define INFO1_DTRANEND1_BIT17	BIT(17)
 #define INFO1_DTRANEND0		BIT(16)
 
 /* DM_CM_INFO2 and DM_CM_INFO2_MASK */
+#define INFO2_MASK_CLEAR        GENMASK_ULL(31, 0)
 #define INFO2_DTRANERR1		BIT(17)
 #define INFO2_DTRANERR0		BIT(16)
 
@@ -79,6 +82,7 @@ static struct renesas_sdhi_scc rcar_gen3_scc_taps[] = {
 	{
 		.clk_rate = 0,
 		.tap = 0x00000300,
+		.tap_hs400 = 0x00000704,
 	},
 };
 
@@ -90,11 +94,15 @@ static const struct renesas_sdhi_of_data of_rcar_gen3_compatible = {
 	.capabilities2	= MMC_CAP2_NO_WRITE_PROTECT,
 	.bus_shift	= 2,
 	.scc_offset	= 0x1000,
+	/* SCC module clock (SDnH) is enabled at 100MHz or more */
+	.scc_base_f_min = 100000000,
 	.taps		= rcar_gen3_scc_taps,
 	.taps_num	= ARRAY_SIZE(rcar_gen3_scc_taps),
 	/* DMAC can handle 0xffffffff blk count but only 1 segment */
 	.max_blk_count	= 0xffffffff,
 	.max_segs	= 1,
+	/* If this device's IOMMU is enabled, it can use multiple segments */
+	.max_segs_on_iommu = 512,
 };
 
 static const struct of_device_id renesas_sdhi_internal_dmac_of_match[] = {
@@ -112,6 +120,12 @@ renesas_sdhi_internal_dmac_dm_write(struct tmio_mmc_host *host,
 	writeq(val, host->ctl + addr);
 }
 
+static u32
+renesas_sdhi_internal_dmac_dm_read(struct tmio_mmc_host *host, int addr)
+{
+	return readl(host->ctl + addr);
+}
+
 static void
 renesas_sdhi_internal_dmac_enable_dma(struct tmio_mmc_host *host, bool enable)
 {
@@ -124,8 +138,12 @@ renesas_sdhi_internal_dmac_enable_dma(struct tmio_mmc_host *host, bool enable)
 		renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1,
 						    INFO1_CLEAR);
 
-	if (priv->dma_priv.enable)
+	if (priv->dma_priv.enable) {
+		host->dma_irq_mask = ~(host->dma_tranend1 | INFO1_DTRANEND0);
 		priv->dma_priv.enable(host, enable);
+		renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1_MASK,
+						    host->dma_irq_mask);
+	}
 }
 
 static void
@@ -158,12 +176,14 @@ renesas_sdhi_internal_dmac_start_dma(struct tmio_mmc_host *host,
 	struct scatterlist *sg = host->sg_ptr;
 	u32 dtran_mode = DTRAN_MODE_BUS_WID_TH | DTRAN_MODE_ADDR_MODE;
 
-	if (!dma_map_sg(&host->pdev->dev, sg, host->sg_len,
-			mmc_get_dma_dir(data)))
+	if (!tmio_mmc_pre_dma_transfer(host, data, COOKIE_MAPPED))
 		goto force_pio;
 
-	/* This DMAC cannot handle if buffer is not 8-bytes alignment */
-	if (!IS_ALIGNED(sg_dma_address(sg), 8))
+	/*
+	 * In case of Gen3, this DMAC cannot handle if buffer is
+	 * not 128-bytes alignment
+	 */
+	if (!IS_ALIGNED(sg_dma_address(sg), 128))
 		goto force_pio_with_unmap;
 
 	if (data->flags & MMC_DATA_READ) {
@@ -175,6 +195,7 @@ renesas_sdhi_internal_dmac_start_dma(struct tmio_mmc_host *host,
 		dtran_mode |= DTRAN_MODE_CH_NUM_CH0;
 	}
 
+	tmio_mmc_clear_transtate(host);
 	renesas_sdhi_internal_dmac_enable_dma(host, true);
 
 	/* set dma parameters */
@@ -187,6 +208,7 @@ renesas_sdhi_internal_dmac_start_dma(struct tmio_mmc_host *host,
 
 force_pio_with_unmap:
 	dma_unmap_sg(&host->pdev->dev, sg, host->sg_len, mmc_get_dma_dir(data));
+	data->host_cookie = COOKIE_UNMAPPED;
 
 force_pio:
 	host->force_pio = true;
@@ -197,7 +219,8 @@ static void renesas_sdhi_internal_dmac_issue_tasklet_fn(unsigned long arg)
 {
 	struct tmio_mmc_host *host = (struct tmio_mmc_host *)arg;
 
-	tmio_mmc_enable_mmc_irqs(host, TMIO_STAT_DATAEND);
+	tmio_mmc_enable_mmc_irqs(host, TMIO_STAT_DATAEND |
+				 TMIO_STAT_DATATIMEOUT);
 
 	/* start the DMAC */
 	renesas_sdhi_internal_dmac_dm_write(host, DM_CM_DTRAN_CTRL,
@@ -207,27 +230,48 @@ static void renesas_sdhi_internal_dmac_issue_tasklet_fn(unsigned long arg)
 static void renesas_sdhi_internal_dmac_complete_tasklet_fn(unsigned long arg)
 {
 	struct tmio_mmc_host *host = (struct tmio_mmc_host *)arg;
-	enum dma_data_direction dir;
 
 	spin_lock_irq(&host->lock);
 
 	if (!host->data)
 		goto out;
 
-	if (host->data->flags & MMC_DATA_READ)
-		dir = DMA_FROM_DEVICE;
-	else
-		dir = DMA_TO_DEVICE;
-
 	renesas_sdhi_internal_dmac_enable_dma(host, false);
-	dma_unmap_sg(&host->pdev->dev, host->sg_ptr, host->sg_len, dir);
+	if (host->data && host->data->host_cookie == COOKIE_MAPPED) {
+		dma_unmap_sg(&host->pdev->dev, host->sg_ptr, host->sg_len,
+			     mmc_get_dma_dir(host->data));
+		host->data->host_cookie = COOKIE_UNMAPPED;
+	}
 
-	if (dir == DMA_FROM_DEVICE)
+	if (host->data->flags & MMC_DATA_READ)
 		clear_bit(SDHI_INTERNAL_DMAC_RX_IN_USE, &global_flags);
 
 	tmio_mmc_do_data_irq(host);
 out:
 	spin_unlock_irq(&host->lock);
+}
+
+static bool renesas_sdhi_internal_dmac_dma_irq(struct tmio_mmc_host *host)
+{
+	unsigned int ireg, status;
+
+	status = renesas_sdhi_internal_dmac_dm_read(host, DM_CM_INFO1);
+	ireg = status & ~host->dma_irq_mask;
+
+	if (ireg & INFO1_DTRANEND0) {
+		renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1, ireg &
+						    ~INFO1_DTRANEND0);
+		tmio_mmc_set_transtate(host, TMIO_TRANSTATE_DEND);
+		return true;
+	}
+
+	if (ireg & host->dma_tranend1) {
+		renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1, ireg &
+						    ~host->dma_tranend1);
+		tmio_mmc_set_transtate(host, TMIO_TRANSTATE_DEND);
+		return true;
+	}
+	return false;
 }
 
 static void
@@ -236,8 +280,17 @@ renesas_sdhi_internal_dmac_request_dma(struct tmio_mmc_host *host,
 {
 	struct renesas_sdhi *priv = host_to_priv(host);
 
+	/* Disable DMAC interrupts, we don't use them */
+	renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO1_MASK,
+					    INFO1_MASK_CLEAR);
+	renesas_sdhi_internal_dmac_dm_write(host, DM_CM_INFO2_MASK,
+					    INFO2_MASK_CLEAR);
+
 	/* Each value is set to non-zero to assume "enabling" each DMA */
 	host->chan_rx = host->chan_tx = (void *)0xdeadbeaf;
+
+	host->dma_tranend1 = (host->sdhi_quirks & DTRAEND1_SET_BIT17) ?
+		INFO1_DTRANEND1_BIT17 : INFO1_DTRANEND1_BIT20;
 
 	tasklet_init(&priv->dma_priv.dma_complete,
 		     renesas_sdhi_internal_dmac_complete_tasklet_fn,
@@ -261,6 +314,7 @@ static const struct tmio_mmc_dma_ops renesas_sdhi_internal_dmac_dma_ops = {
 	.release = renesas_sdhi_internal_dmac_release_dma,
 	.abort = renesas_sdhi_internal_dmac_abort_dma,
 	.dataend = renesas_sdhi_internal_dmac_dataend_dma,
+	.dma_irq = renesas_sdhi_internal_dmac_dma_irq,
 };
 
 /*
@@ -278,6 +332,7 @@ static const struct soc_device_attribute gen3_soc_whitelist[] = {
 	{ .soc_id = "r8a7796" },
 	{ .soc_id = "r8a77965" },
 	{ .soc_id = "r8a77980" },
+	{ .soc_id = "r8a77990" },
 	{ .soc_id = "r8a77995" },
 	{ /* sentinel */ }
 };
@@ -291,7 +346,11 @@ static int renesas_sdhi_internal_dmac_probe(struct platform_device *pdev)
 
 	global_flags |= (unsigned long)soc->data;
 
+#ifndef CONFIG_MMC_SDHI_PIO
 	return renesas_sdhi_probe(pdev, &renesas_sdhi_internal_dmac_dma_ops);
+#else
+	return renesas_sdhi_probe(pdev, NULL);
+#endif
 }
 
 static const struct dev_pm_ops renesas_sdhi_internal_dmac_dev_pm_ops = {

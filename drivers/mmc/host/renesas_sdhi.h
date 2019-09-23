@@ -18,6 +18,7 @@
 struct renesas_sdhi_scc {
 	unsigned long clk_rate;	/* clock rate for SDR104 */
 	u32 tap;		/* sampling clock position for SDR104 */
+	u32 tap_hs400;		/* sampling clock position for HS400 */
 };
 
 struct renesas_sdhi_of_data {
@@ -29,10 +30,12 @@ struct renesas_sdhi_of_data {
 	dma_addr_t dma_rx_offset;
 	unsigned int bus_shift;
 	int scc_offset;
+	unsigned int scc_base_f_min;
 	struct renesas_sdhi_scc *taps;
 	int taps_num;
 	unsigned int max_blk_count;
 	unsigned short max_segs;
+	unsigned short max_segs_on_iommu;
 };
 
 struct tmio_mmc_dma {
@@ -52,6 +55,11 @@ struct renesas_sdhi {
 	struct pinctrl_state *pins_default, *pins_uhs;
 	void __iomem *scc_ctl;
 	u32 scc_tappos;
+	u32 scc_tappos_hs400;
+	int scc_offset;
+	unsigned int scc_base_f_min;
+	u32 adjust_hs400_offset;
+	u32 adjust_hs400_calibrate;
 };
 
 #define host_to_priv(host) \

@@ -836,8 +836,8 @@ static int rcar_dmac_chan_pause(struct dma_chan *chan)
  * Descriptors preparation
  */
 
-static void rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
-					  struct rcar_dmac_desc *desc)
+static int rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
+					 struct rcar_dmac_desc *desc)
 {
 	static const u32 chcr_ts[] = {
 		RCAR_DMACHCR_TS_1B, RCAR_DMACHCR_TS_2B,
@@ -870,8 +870,13 @@ static void rcar_dmac_chan_configure_desc(struct rcar_dmac_chan *chan,
 		break;
 	}
 
+	if (xfer_size > 0x40)	/* bus width */
+		return -EINVAL;
+
 	desc->xfer_shift = ilog2(xfer_size);
 	desc->chcr = chcr | chcr_ts[desc->xfer_shift];
+
+	return 0;
 }
 
 /*
@@ -898,6 +903,7 @@ rcar_dmac_chan_prep_sg(struct rcar_dmac_chan *chan, struct scatterlist *sgl,
 	unsigned int full_size = 0;
 	bool cross_boundary = false;
 	unsigned int i;
+	int ret;
 #ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
 	u32 high_dev_addr;
 	u32 high_mem_addr;
@@ -913,7 +919,11 @@ rcar_dmac_chan_prep_sg(struct rcar_dmac_chan *chan, struct scatterlist *sgl,
 	desc->cyclic = cyclic;
 	desc->direction = dir;
 
-	rcar_dmac_chan_configure_desc(chan, desc);
+	ret = rcar_dmac_chan_configure_desc(chan, desc);
+	if (ret) {
+		rcar_dmac_desc_put(chan, desc);
+		return NULL;
+	}
 
 	max_chunk_size = RCAR_DMATCR_MASK << desc->xfer_shift;
 
@@ -1281,6 +1291,9 @@ static unsigned int rcar_dmac_chan_get_residue(struct rcar_dmac_chan *chan,
 	enum dma_status status;
 	unsigned int residue = 0;
 	unsigned int dptr = 0;
+	unsigned int chcrb;
+	unsigned int tcrb;
+	unsigned int i;
 
 	if (!desc)
 		return 0;
@@ -1329,14 +1342,31 @@ static unsigned int rcar_dmac_chan_get_residue(struct rcar_dmac_chan *chan,
 	}
 
 	/*
+	 * We need to read two registers.
+	 * Make sure the control register does not skip to next chunk
+	 * while reading the counter.
+	 * Trying it 3 times should be enough: Initial read, retry, retry
+	 * for the paranoid.
+	 */
+	for (i = 0; i < 3; i++) {
+		chcrb = rcar_dmac_chan_read(chan, RCAR_DMACHCRB) &
+					    RCAR_DMACHCRB_DPTR_MASK;
+		tcrb = rcar_dmac_chan_read(chan, RCAR_DMATCRB);
+		/* Still the same? */
+		if (chcrb == (rcar_dmac_chan_read(chan, RCAR_DMACHCRB) &
+			      RCAR_DMACHCRB_DPTR_MASK))
+			break;
+	}
+	WARN_ONCE(i >= 3, "residue might be not continuous!");
+
+	/*
 	 * In descriptor mode the descriptor running pointer is not maintained
 	 * by the interrupt handler, find the running descriptor from the
 	 * descriptor pointer field in the CHCRB register. In non-descriptor
 	 * mode just use the running descriptor pointer.
 	 */
 	if (desc->hwdescs.use) {
-		dptr = (rcar_dmac_chan_read(chan, RCAR_DMACHCRB) &
-			RCAR_DMACHCRB_DPTR_MASK) >> RCAR_DMACHCRB_DPTR_SHIFT;
+		dptr = chcrb >> RCAR_DMACHCRB_DPTR_SHIFT;
 		if (dptr == 0)
 			dptr = desc->nchunks;
 		dptr--;
@@ -1354,7 +1384,7 @@ static unsigned int rcar_dmac_chan_get_residue(struct rcar_dmac_chan *chan,
 	}
 
 	/* Add the residue for the current chunk. */
-	residue += rcar_dmac_chan_read(chan, RCAR_DMATCRB) << desc->xfer_shift;
+	residue += tcrb << desc->xfer_shift;
 
 	return residue;
 }
