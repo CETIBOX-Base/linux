@@ -627,12 +627,19 @@
 	status = "okay";
 };
 
+&hsusb {
+	dr_mode = "host";
+	status = "okay";
+};
+
 &ehci0 {
 	status = "okay";
+	dr_mode = "host";
 };
 
 &ohci0 {
 	status = "okay";
+	dr_mode = "host";
 };
 
 &ehci1 {
