@@ -82,6 +82,8 @@
 #define USB2_ADPCTRL_IDDIG		BIT(19)
 #define USB2_ADPCTRL_IDPULLUP		BIT(5)	/* 1 = ID sampling is enabled */
 #define USB2_ADPCTRL_DRVVBUS		BIT(4)
+#define USB2_ADPCTRL_OTGDISABLE		BIT(3)	/* 1 = VBUS valid comparator disabled */
+
 
 #define RCAR_GEN3_PHY_HAS_DEDICATED_PINS	1
 
@@ -93,6 +95,7 @@ struct rcar_gen3_chan {
 	struct work_struct work;
 	bool extcon_host;
 	bool has_otg_pins;
+	bool force_host;
 };
 
 static void rcar_gen3_phy_usb2_work(struct work_struct *work)
@@ -310,6 +313,25 @@ static void rcar_gen3_init_otg(struct rcar_gen3_chan *ch)
 	rcar_gen3_device_recognition(ch);
 }
 
+static void rcar_gen3_init_host(struct rcar_gen3_chan *ch)
+{
+	void __iomem *usb2_base = ch->base;
+	u32 val;
+
+	val = readl(usb2_base + USB2_VBCTRL);
+	val &= ~USB2_VBCTRL_OCCLREN;
+	writel(val | USB2_VBCTRL_DRVVBUSSEL, usb2_base + USB2_VBCTRL);
+	val = readl(usb2_base + USB2_ADPCTRL);
+	writel((val & ~USB2_ADPCTRL_IDPULLUP) | USB2_ADPCTRL_OTGDISABLE, usb2_base + USB2_ADPCTRL);
+	val = readl(usb2_base + USB2_LINECTRL1);
+	writel(val | USB2_LINECTRL1_DPRPD_EN | USB2_LINECTRL1_DMRPD_EN,
+	       usb2_base + USB2_LINECTRL1);
+
+	rcar_gen3_set_linectrl(ch, 1, 1);
+	rcar_gen3_set_host_mode(ch, 1);
+	rcar_gen3_enable_vbus_ctrl(ch, 1);
+}
+
 static int rcar_gen3_phy_usb2_init(struct phy *p)
 {
 	struct rcar_gen3_chan *channel = phy_get_drvdata(p);
@@ -323,6 +345,8 @@ static int rcar_gen3_phy_usb2_init(struct phy *p)
 	/* Initialize otg part */
 	if (channel->has_otg_pins)
 		rcar_gen3_init_otg(channel);
+	else if (channel->force_host)
+		rcar_gen3_init_host(channel);
 
 	return 0;
 }
@@ -434,6 +458,7 @@ static int rcar_gen3_phy_usb2_probe(struct platform_device *pdev)
 	struct phy_provider *provider;
 	struct resource *res;
 	int irq, ret = 0;
+	enum usb_dr_mode dr_mode;
 
 	if (!dev->of_node) {
 		dev_err(dev, "This driver needs device tree\n");
@@ -459,7 +484,8 @@ static int rcar_gen3_phy_usb2_probe(struct platform_device *pdev)
 			dev_err(dev, "No irq handler (%d)\n", irq);
 	}
 
-	if (of_usb_get_dr_mode_by_phy(dev->of_node, 0) == USB_DR_MODE_OTG) {
+	dr_mode = of_usb_get_dr_mode_by_phy(dev->of_node, 0);
+	if (dr_mode == USB_DR_MODE_OTG) {
 		int ret;
 
 		channel->has_otg_pins = (uintptr_t)of_device_get_match_data(dev);
@@ -473,6 +499,8 @@ static int rcar_gen3_phy_usb2_probe(struct platform_device *pdev)
 			dev_err(dev, "Failed to register extcon\n");
 			return ret;
 		}
+	} else if (dr_mode == USB_DR_MODE_HOST) {
+		channel->force_host = true;
 	}
 
 	/*
