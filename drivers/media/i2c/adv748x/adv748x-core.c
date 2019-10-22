@@ -101,6 +101,27 @@ static const struct adv748x_register_map adv748x_default_addresses[] = {
 	[ADV748X_PAGE_TXA] = { "txa", 0x4a },
 };
 
+int adv748x_read_block(struct adv748x_state *state, u8 client_page, u8 reg, void *val, size_t reg_count)
+{
+	struct i2c_client *client = state->i2c_clients[client_page];
+	int err;
+
+	err = regmap_bulk_read(state->regmap[client_page], reg, val, reg_count);
+	if (err) {
+		adv_err(state, "error reading %02x, %02x-%02lx: %d\n",
+				client->addr, reg, reg + reg_count - 1, err);
+		return err;
+	}
+	adv_dbg(state, "read %s 0x%02x-0x%02x {%02x%c%02x%c%02x%c%02x%c%02x%c\n",
+		adv748x_default_addresses[client_page].name, reg, reg + (uint)reg_count - 1,
+		reg_count > 0 ?((const u8 *)val)[0] : 0, reg_count > 1 ? ' ' : '}',
+		reg_count > 1 ?((const u8 *)val)[1] : 0, reg_count > 2 ? ' ' : reg_count < 2 ? ' ' : '}',
+		reg_count > 2 ?((const u8 *)val)[2] : 0, reg_count > 3 ? ' ' : reg_count < 3 ? ' ' : '}',
+		reg_count > 3 ?((const u8 *)val)[3] : 0, reg_count > 4 ? ' ' : reg_count < 4 ? ' ' : '}',
+		reg_count > 4 ?((const u8 *)val)[4] : 0, reg_count > 5 ? '_' : reg_count < 5 ? ' ' : '}');
+	return 0;
+}
+
 static int adv748x_read_check(struct adv748x_state *state,
 			      int client_page, u8 reg)
 {
@@ -115,6 +136,8 @@ static int adv748x_read_check(struct adv748x_state *state,
 				client->addr, reg);
 		return err;
 	}
+	adv_dbg(state, "read %s 0x%02x {%02x}\n",
+		adv748x_default_addresses[client_page].name, reg, val);
 
 	return val;
 }
@@ -126,6 +149,8 @@ int adv748x_read(struct adv748x_state *state, u8 page, u8 reg)
 
 int adv748x_write(struct adv748x_state *state, u8 page, u8 reg, u8 value)
 {
+	adv_dbg(state, "write %s 0x%02x {%02x}\n",
+		adv748x_default_addresses[page].name, reg, value);
 	return regmap_write(state->regmap[page], reg, value);
 }
 
@@ -144,6 +169,13 @@ int adv748x_write_block(struct adv748x_state *state, int client_page,
 	if (val_len > I2C_SMBUS_BLOCK_MAX)
 		val_len = I2C_SMBUS_BLOCK_MAX;
 
+	adv_dbg(state, "write %s 0x%02x-0x%02x {%02x%c%02x%c%02x%c%02x%c%02x%c\n",
+		adv748x_default_addresses[client_page].name, init_reg, init_reg + (uint)val_len - 1,
+		val_len > 0 ?((const u8 *)val)[0] : 0, val_len > 1 ? ' ' : '}',
+		val_len > 1 ?((const u8 *)val)[1] : 0, val_len > 2 ? ' ' : '}',
+		val_len > 2 ?((const u8 *)val)[2] : 0, val_len > 3 ? ' ' : '}',
+		val_len > 3 ?((const u8 *)val)[3] : 0, val_len > 4 ? ' ' : '}',
+		val_len > 4 ?((const u8 *)val)[4] : 0, val_len > 5 ? '_' : '}');
 	return regmap_raw_write(regmap, init_reg, val, val_len);
 }
 
