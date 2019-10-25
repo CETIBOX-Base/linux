@@ -29,6 +29,7 @@
 #include <media/v4l2-dv-timings.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-fwnode.h>
+#include <sound/soc.h>
 
 #include "adv748x.h"
 
@@ -807,6 +808,30 @@ static void adv748x_dt_cleanup(struct adv748x_state *state)
 		of_node_put(state->endpoints[i]);
 }
 
+static struct snd_soc_dai_driver adv748x_dai = {
+	.name = "adv748x-i2s",
+	.capture = {
+		.stream_name	= "Capture",
+		.channels_min	= 8,
+		.channels_max	= 8,
+		.rates = SNDRV_PCM_RATE_48000,
+		.formats = SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_U24_LE,
+	 },
+};
+
+static	int adv748x_of_xlate_dai_name(struct snd_soc_component *component,
+				      struct of_phandle_args *args,
+				      const char **dai_name)
+{
+	if (dai_name)
+		*dai_name = adv748x_dai.name;
+	return 0;
+}
+
+static const struct snd_soc_component_driver adv748x_codec = {
+	.of_xlate_dai_name = adv748x_of_xlate_dai_name,
+};
+
 static int adv748x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
@@ -901,8 +926,15 @@ static int adv748x_probe(struct i2c_client *client,
 		goto err_cleanup_txa;
 	}
 
+	ret = devm_snd_soc_register_component(state->dev, &adv748x_codec, &adv748x_dai, 1);
+	if (ret < 0) {
+		adv_err(state, "Failed to register the codec driver");
+		goto err_cleanup_txb;
+	}
 	return 0;
 
+err_cleanup_txb:
+	adv748x_csi2_cleanup(&state->txb);
 err_cleanup_txa:
 	adv748x_csi2_cleanup(&state->txa);
 err_cleanup_afe:
