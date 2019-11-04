@@ -406,7 +406,7 @@ u32 rsnd_get_busif_shift(struct rsnd_dai_stream *io, struct rsnd_mod *mod)
  */
 struct rsnd_mod *rsnd_mod_next(int *iterator,
 			       struct rsnd_dai_stream *io,
-			       enum rsnd_mod_type *array,
+			       const enum rsnd_mod_type *array,
 			       int array_size)
 {
 	struct rsnd_mod *mod;
@@ -423,7 +423,7 @@ struct rsnd_mod *rsnd_mod_next(int *iterator,
 	return NULL;
 }
 
-static enum rsnd_mod_type rsnd_mod_sequence[][RSND_MOD_MAX] = {
+static const enum rsnd_mod_type rsnd_mod_sequence[][RSND_MOD_MAX] = {
 	{
 		/* CAPTURE */
 		RSND_MOD_AUDMAPP,
@@ -479,7 +479,7 @@ static int rsnd_status_update(u32 *status,
 	struct rsnd_mod *mod;						\
 	int is_play = rsnd_io_is_play(io);				\
 	int ret = 0, i;							\
-	enum rsnd_mod_type *types = rsnd_mod_sequence[is_play];		\
+	const enum rsnd_mod_type *types = rsnd_mod_sequence[is_play];	\
 	for_each_rsnd_mod_arrays(i, mod, io, types, RSND_MOD_MAX) {	\
 		int tmp = 0;						\
 		u32 *status = mod->get_status(io, mod, types[i]);	\
