@@ -21,6 +21,13 @@
 
 #include "adv748x.h"
 
+#define HDMI_AOUT_NONE 0
+#define HDMI_AOUT_I2S 1
+#define HDMI_AOUT_I2S_TDM 2
+
+static int default_audio_out;
+module_param_named(aout, default_audio_out, int, 0444);
+
 /* -----------------------------------------------------------------------------
  * HDMI and CP
  */
@@ -832,10 +839,6 @@ static int adv748x_hdmi_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
-#define HDMI_AOUT_NONE 0
-#define HDMI_AOUT_I2S 1
-#define HDMI_AOUT_I2S_TDM 2
-
 static int adv748x_hdmi_enumaudout(struct adv748x_hdmi *hdmi, struct v4l2_audioout *a)
 {
 	switch (a->index) {
@@ -1148,6 +1151,22 @@ int adv748x_hdmi_init(struct adv748x_hdmi *hdmi)
 		return err;
 	}
 
+	hdmi->audio_out = default_audio_out;
+	if (hdmi->audio_out != HDMI_AOUT_NONE) {
+		err = set_audio_out(state, default_audio_out);
+		if (err)
+			v4l2_err(&hdmi->sd, "selecting audio output error %d\n", err);
+		else {
+			struct v4l2_ctrl *mute;
+
+			mute = v4l2_ctrl_find(&hdmi->ctrl_hdl, V4L2_CID_AUDIO_MUTE);
+			if (mute) {
+				err = v4l2_ctrl_s_ctrl(mute, 0);
+				if (err)
+					v4l2_err(&hdmi->sd, "demuting audio error %d\n", err);
+			}
+		}
+	}
 	return 0;
 
 err_free_media:
