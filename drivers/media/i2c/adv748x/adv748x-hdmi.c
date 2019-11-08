@@ -1158,6 +1158,8 @@ err_free_media:
 
 void adv748x_hdmi_cleanup(struct adv748x_hdmi *hdmi)
 {
+	adv748x_hdmi_audio_mute(hdmi, 1);
+	set_audio_out(adv748x_hdmi_to_state(hdmi), HDMI_AOUT_NONE);
 	v4l2_device_unregister_subdev(&hdmi->sd);
 	media_entity_cleanup(&hdmi->sd.entity);
 	v4l2_ctrl_handler_free(&hdmi->ctrl_hdl);
