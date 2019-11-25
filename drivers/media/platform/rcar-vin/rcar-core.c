@@ -612,12 +612,14 @@ static int rvin_group_notify_complete(struct v4l2_async_notifier *notifier)
 	unsigned int i;
 	int ret;
 
+	if (vin->subdev_completed)
+		return 0;
 	ret = v4l2_device_register_subdev_nodes(&vin->v4l2_dev);
 	if (ret) {
 		vin_err(vin, "Failed to register subdev nodes\n");
 		return ret;
 	}
-
+	vin->subdev_completed = true;
 	/* Register all video nodes for the group. */
 	for (i = 0; i < RCAR_VIN_NUM; i++) {
 		if (vin->group->vin[i]) {

@@ -253,6 +253,7 @@ struct rvin_dev {
 	unsigned int chsel;
 	wait_queue_head_t setup_wait;
 	bool suspend;
+	bool subdev_completed;
 	u32 chip_info;
 };
 
