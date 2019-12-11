@@ -619,59 +619,13 @@ static int rpc_hf_mtd_read(struct mtd_info *mtd, loff_t from, size_t len,
 			   size_t *retlen, u_char *buf)
 {
 	struct rpc_info *info = mtd->priv;
-	loff_t addr;
-	size_t cnt;
-	int retval, idx;
 
-	retval = 0;
-	*retlen = 0;
-	cnt = len;
-	idx = 0;
-	addr = from;
+	down_read(&info->lock);
+	memcpy_fromio(buf, info->flash_base + from, len);
+	up_read(&info->lock);
 
-	down_write(&info->lock);
-
-	while (cnt) {
-		enum rpc_hf_size bits;
-
-		if (cnt > 8) {
-			bits = RPC_HF_SIZE_64BIT;
-		} else if (cnt > 4) {
-			bits = RPC_HF_SIZE_32BIT;
-		} else {
-			bits = RPC_HF_SIZE_16BIT;
-		}
-
-		rpc_hf_read_mem(info, addr, (u16*)buf, bits);
-
-		switch(bits) {
-		case RPC_HF_SIZE_64BIT:
-			cnt -= 8;
-			addr += 8;
-			buf += 8;
-			break;
-		case RPC_HF_SIZE_32BIT:
-			cnt -= 4;
-			addr += 4;
-			buf += 4;
-			break;
-		case RPC_HF_SIZE_16BIT:
-			cnt -= 2;
-			addr += 2;
-			buf += 2;
-			break;
-		}
-
-		/* retval = rpc_hf_status(info, addr, 1000000, 10); */
-		/* if (retval) */
-		/* 	goto out; */
-	}
 	*retlen = len;
-
-out:
-	rpc_hf_mode_ext(info);
-	up_write(&info->lock);
-	return retval;
+	return 0;
 }
 
 /* Flash erase */
