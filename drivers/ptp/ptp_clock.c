@@ -202,7 +202,6 @@ static void ptp_aux_kworker(struct kthread_work *work)
 #define PTPCLOCK_MAX_CTS_TRIES 128
 #define PTPCLOCK_MAX_CTS_DELAY 2000
 
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 static int ptp_clock_get_time_fn(ktime_t *device_time,
 								 ktime_t *sys_time,
 								 void *ctx)
@@ -228,7 +227,6 @@ static int ptp_clock_get_time_fn(ktime_t *device_time,
 
 	return -ETIMEDOUT;
 }
-#endif
 
 /* public interface */
 
@@ -313,15 +311,11 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info,
 		goto no_clock;
 	}
 
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 	snprintf(ptpname, 32, "ptp%d", ptp->index);
-	err = devcts_register_device(ptpname, &ptp_clock_get_time_fn,
-								 (void*)ptp);
-	if (err != 0) {
+	err = devcts_register_device(ptpname, &ptp_clock_get_time_fn, ptp);
+	if (err != 0 && err != -ENODEV) {
 		dev_warn(ptp->dev, "Failed to register with devcts: %d\n", err);
 	}
-  no_devcts:
-#endif
 
 	return ptp;
 
@@ -348,11 +342,9 @@ EXPORT_SYMBOL(ptp_clock_register);
 
 int ptp_clock_unregister(struct ptp_clock *ptp)
 {
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 	char ptpname[32];
 	snprintf(ptpname, 32, "ptp%d", ptp->index);
 	devcts_unregister_device(ptpname);
-#endif
 	
 	ptp->defunct = 1;
 	wake_up_interruptible(&ptp->tsev_wq);

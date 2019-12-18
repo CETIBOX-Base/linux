@@ -1873,7 +1873,6 @@ static void rcar_canfd_channel_remove(struct rcar_canfd_global *gpriv, u32 ch)
 	}
 }
 
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 static int rcar_canfd_get_time_fn(ktime_t *device_time,
 						   ktime_t *sys_time,
 						   void *ctx)
@@ -1897,7 +1896,6 @@ static int rcar_canfd_get_time_fn(ktime_t *device_time,
 
 	return -ETIMEDOUT;
 }
-#endif
 
 static int rcar_canfd_probe(struct platform_device *pdev)
 {
@@ -2083,13 +2081,10 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "hrtimer interval is %lld ns", ktime_to_ns(gpriv->ts_hrtimer_interval));
 	hrtimer_start(&gpriv->ts_hrtimer, gpriv->ts_hrtimer_interval, HRTIMER_MODE_REL);
 
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 	err = devcts_register_device(pdev->name, &rcar_canfd_get_time_fn,
 									 (void*)gpriv);
-	if (err != 0) {
+	if (err != 0 && err != -ENODEV)
 		dev_warn(&pdev->dev, "Failed to register with devcts: %d\n", err);
-	}
-#endif
 
 #if (RCANFD_GLOBAL_TRANSCEIVER_CONTROL == 1)
 	for_each_set_bit(ch, &gpriv->channels_mask, RCANFD_NUM_CHANNELS) {
@@ -2182,9 +2177,7 @@ static int rcar_canfd_remove(struct platform_device *pdev)
 	struct rcar_canfd_global *gpriv = platform_get_drvdata(pdev);
 	u32 ch;
 
-#if defined(CONFIG_CHAR_CROSSTIMESTAMP) || defined(CONFIG_CHAR_CROSSTIMESTAMP_MODULE)
 	devcts_unregister_device(pdev->name);
-#endif
 	
 	hrtimer_cancel(&gpriv->ts_hrtimer);
 	
