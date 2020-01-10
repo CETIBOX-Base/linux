@@ -117,7 +117,8 @@
 &sound_card {
 	dais = <&rsnd_port0	/* ak4613 */
 		&rsnd_port1	/* HDMI0  */
-		&rsnd_port2>;	/* HDMI1  */
+		&rsnd_port2	/* HDMI1  */
+		&rsnd_port3>;	/* adv7482 hdmi-in  */
 };
 
 &hdmi0 {
@@ -197,7 +198,27 @@
 				playback = <&ssi3>;
 			};
 		};
+		rsnd_port3: port@3 {
+			reg = <3>;
+			rsnd_endpoint3: endpoint {
+				remote-endpoint = <&adv7482_i2s>;
+
+				dai-tdm-slot-num = <8>;
+				dai-tdm-slot-width = <32>;
+				dai-format = "left_j";
+				mclk-fs = <256>;
+				bitclock-master = <&adv7482_i2s>;
+				frame-master = <&adv7482_i2s>;
+				system-clock-direction-out;
+
+				capture = <&ssi4>;
+			};
+		};
 	};
+};
+
+&adv7482_i2s {
+	remote-endpoint = <&rsnd_endpoint3>;
 };
 
 &pfc {

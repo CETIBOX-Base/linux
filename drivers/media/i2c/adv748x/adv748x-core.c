@@ -29,6 +29,7 @@
 #include <media/v4l2-dv-timings.h>
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-fwnode.h>
+#include <sound/soc.h>
 
 #include "adv748x.h"
 
@@ -36,96 +37,28 @@
  * Register manipulation
  */
 
+#define ADV748X_REGMAP_CONF(n) \
+{ \
+	.name = n, \
+	.reg_bits = 8, \
+	.val_bits = 8, \
+	.max_register = 0xff, \
+	.cache_type = REGCACHE_NONE, \
+}
+
 static const struct regmap_config adv748x_regmap_cnf[] = {
-	{
-		.name			= "io",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "dpll",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "cp",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "hdmi",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "edid",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "repeater",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "infoframe",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "cec",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "sdp",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-
-	{
-		.name			= "txb",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
-	{
-		.name			= "txa",
-		.reg_bits		= 8,
-		.val_bits		= 8,
-
-		.max_register		= 0xff,
-		.cache_type		= REGCACHE_NONE,
-	},
+	ADV748X_REGMAP_CONF("io"),
+	ADV748X_REGMAP_CONF("dpll"),
+	ADV748X_REGMAP_CONF("cp"),
+	ADV748X_REGMAP_CONF("hdmi"),
+	ADV748X_REGMAP_CONF("edid"),
+	ADV748X_REGMAP_CONF("repeater"),
+	ADV748X_REGMAP_CONF("infoframe"),
+	ADV748X_REGMAP_CONF("cbus"),
+	ADV748X_REGMAP_CONF("cec"),
+	ADV748X_REGMAP_CONF("sdp"),
+	ADV748X_REGMAP_CONF("txa"),
+	ADV748X_REGMAP_CONF("txb"),
 };
 
 static int adv748x_configure_regmap(struct adv748x_state *state, int region)
@@ -149,21 +82,46 @@ static int adv748x_configure_regmap(struct adv748x_state *state, int region)
 
 	return 0;
 }
-
-/* Default addresses for the I2C pages */
-static int adv748x_i2c_addresses[ADV748X_PAGE_MAX] = {
-	ADV748X_I2C_IO,
-	ADV748X_I2C_DPLL,
-	ADV748X_I2C_CP,
-	ADV748X_I2C_HDMI,
-	ADV748X_I2C_EDID,
-	ADV748X_I2C_REPEATER,
-	ADV748X_I2C_INFOFRAME,
-	ADV748X_I2C_CEC,
-	ADV748X_I2C_SDP,
-	ADV748X_I2C_TXB,
-	ADV748X_I2C_TXA,
+struct adv748x_register_map {
+	const char *name;
+	u8 default_addr;
 };
+
+static const struct adv748x_register_map adv748x_default_addresses[] = {
+	[ADV748X_PAGE_IO] = { "main", 0x70 },
+	[ADV748X_PAGE_DPLL] = { "dpll", 0x26 },
+	[ADV748X_PAGE_CP] = { "cp", 0x22 },
+	[ADV748X_PAGE_HDMI] = { "hdmi", 0x34 },
+	[ADV748X_PAGE_EDID] = { "edid", 0x36 },
+	[ADV748X_PAGE_REPEATER] = { "repeater", 0x32 },
+	[ADV748X_PAGE_INFOFRAME] = { "infoframe", 0x31 },
+	[ADV748X_PAGE_CBUS] = { "cbus", 0x30 },
+	[ADV748X_PAGE_CEC] = { "cec", 0x41 },
+	[ADV748X_PAGE_SDP] = { "sdp", 0x79 },
+	[ADV748X_PAGE_TXB] = { "txb", 0x48 },
+	[ADV748X_PAGE_TXA] = { "txa", 0x4a },
+};
+
+int adv748x_read_block(struct adv748x_state *state, u8 client_page, u8 reg, void *val, size_t reg_count)
+{
+	struct i2c_client *client = state->i2c_clients[client_page];
+	int err;
+
+	err = regmap_bulk_read(state->regmap[client_page], reg, val, reg_count);
+	if (err) {
+		adv_err(state, "error reading %02x, %02x-%02lx: %d\n",
+				client->addr, reg, reg + reg_count - 1, err);
+		return err;
+	}
+	adv_dbg(state, "read %s 0x%02x-0x%02x {%02x%c%02x%c%02x%c%02x%c%02x%c\n",
+		adv748x_default_addresses[client_page].name, reg, reg + (uint)reg_count - 1,
+		reg_count > 0 ?((const u8 *)val)[0] : 0, reg_count > 1 ? ' ' : '}',
+		reg_count > 1 ?((const u8 *)val)[1] : 0, reg_count > 2 ? ' ' : reg_count < 2 ? ' ' : '}',
+		reg_count > 2 ?((const u8 *)val)[2] : 0, reg_count > 3 ? ' ' : reg_count < 3 ? ' ' : '}',
+		reg_count > 3 ?((const u8 *)val)[3] : 0, reg_count > 4 ? ' ' : reg_count < 4 ? ' ' : '}',
+		reg_count > 4 ?((const u8 *)val)[4] : 0, reg_count > 5 ? '_' : reg_count < 5 ? ' ' : '}');
+	return 0;
+}
 
 static int adv748x_read_check(struct adv748x_state *state,
 			      int client_page, u8 reg)
@@ -179,6 +137,8 @@ static int adv748x_read_check(struct adv748x_state *state,
 				client->addr, reg);
 		return err;
 	}
+	adv_dbg(state, "read %s 0x%02x {%02x}\n",
+		adv748x_default_addresses[client_page].name, reg, val);
 
 	return val;
 }
@@ -190,7 +150,16 @@ int adv748x_read(struct adv748x_state *state, u8 page, u8 reg)
 
 int adv748x_write(struct adv748x_state *state, u8 page, u8 reg, u8 value)
 {
+	adv_dbg(state, "write %s 0x%02x {%02x}\n",
+		adv748x_default_addresses[page].name, reg, value);
 	return regmap_write(state->regmap[page], reg, value);
+}
+
+int adv748x_update_bits(struct adv748x_state *state, u8 page, u8 reg, u8 mask, u8 value)
+{
+	dev_dbg(state->dev, "update %s 0x%02x {=%02x & %02x}\n",
+		adv748x_default_addresses[page].name, reg, value, mask);
+	return regmap_update_bits(state->regmap[page], reg, mask, value);
 }
 
 /* adv748x_write_block(): Write raw data with a maximum of I2C_SMBUS_BLOCK_MAX
@@ -208,18 +177,30 @@ int adv748x_write_block(struct adv748x_state *state, int client_page,
 	if (val_len > I2C_SMBUS_BLOCK_MAX)
 		val_len = I2C_SMBUS_BLOCK_MAX;
 
+	adv_dbg(state, "write %s 0x%02x-0x%02x {%02x%c%02x%c%02x%c%02x%c%02x%c\n",
+		adv748x_default_addresses[client_page].name, init_reg, init_reg + (uint)val_len - 1,
+		val_len > 0 ?((const u8 *)val)[0] : 0, val_len > 1 ? ' ' : '}',
+		val_len > 1 ?((const u8 *)val)[1] : 0, val_len > 2 ? ' ' : '}',
+		val_len > 2 ?((const u8 *)val)[2] : 0, val_len > 3 ? ' ' : '}',
+		val_len > 3 ?((const u8 *)val)[3] : 0, val_len > 4 ? ' ' : '}',
+		val_len > 4 ?((const u8 *)val)[4] : 0, val_len > 5 ? '_' : '}');
 	return regmap_raw_write(regmap, init_reg, val, val_len);
 }
 
-static struct i2c_client *adv748x_dummy_client(struct adv748x_state *state,
-					       u8 addr, u8 io_reg)
+static int adv748x_set_slave_addresses(struct adv748x_state *state)
 {
-	struct i2c_client *client = state->client;
+	struct i2c_client *client;
+	unsigned int i;
+	u8 io_reg;
 
-	if (addr)
-		io_write(state, io_reg, addr << 1);
+	for (i = ADV748X_PAGE_DPLL; i < ADV748X_PAGE_MAX; ++i) {
+		io_reg = ADV748X_IO_SLAVE_ADDR_BASE + i;
+		client = state->i2c_clients[i];
 
-	return i2c_new_dummy(client->adapter, io_read(state, io_reg) >> 1);
+		io_write(state, io_reg, client->addr << 1);
+	}
+
+	return 0;
 }
 
 static void adv748x_unregister_clients(struct adv748x_state *state)
@@ -234,13 +215,15 @@ static void adv748x_unregister_clients(struct adv748x_state *state)
 
 static int adv748x_initialise_clients(struct adv748x_state *state)
 {
-	int i;
+	unsigned int i;
 	int ret;
 
 	for (i = ADV748X_PAGE_DPLL; i < ADV748X_PAGE_MAX; ++i) {
-		state->i2c_clients[i] =
-			adv748x_dummy_client(state, adv748x_i2c_addresses[i],
-					     ADV748X_IO_SLAVE_ADDR_BASE + i);
+		state->i2c_clients[i] = i2c_new_secondary_device(
+				state->client,
+				adv748x_default_addresses[i].name,
+				adv748x_default_addresses[i].default_addr);
+
 		if (state->i2c_clients[i] == NULL) {
 			adv_err(state, "failed to create i2c client %u\n", i);
 			return -ENOMEM;
@@ -251,7 +234,7 @@ static int adv748x_initialise_clients(struct adv748x_state *state)
 			return ret;
 	}
 
-	return 0;
+	return adv748x_set_slave_addresses(state);
 }
 
 /**
@@ -494,20 +477,6 @@ static const struct adv748x_reg_value adv748x_sw_reset[] = {
 	{ADV748X_PAGE_EOR, 0xff, 0xff}	/* End of register table */
 };
 
-static const struct adv748x_reg_value adv748x_set_slave_address[] = {
-	{ADV748X_PAGE_IO, 0xf3, ADV748X_I2C_DPLL << 1},
-	{ADV748X_PAGE_IO, 0xf4, ADV748X_I2C_CP << 1},
-	{ADV748X_PAGE_IO, 0xf5, ADV748X_I2C_HDMI << 1},
-	{ADV748X_PAGE_IO, 0xf6, ADV748X_I2C_EDID << 1},
-	{ADV748X_PAGE_IO, 0xf7, ADV748X_I2C_REPEATER << 1},
-	{ADV748X_PAGE_IO, 0xf8, ADV748X_I2C_INFOFRAME << 1},
-	{ADV748X_PAGE_IO, 0xfa, ADV748X_I2C_CEC << 1},
-	{ADV748X_PAGE_IO, 0xfb, ADV748X_I2C_SDP << 1},
-	{ADV748X_PAGE_IO, 0xfc, ADV748X_I2C_TXB << 1},
-	{ADV748X_PAGE_IO, 0xfd, ADV748X_I2C_TXA << 1},
-	{ADV748X_PAGE_EOR, 0xff, 0xff}	/* End of register table */
-};
-
 /* Supported Formats For Script Below */
 /* - 01-29 HDMI to MIPI TxA CSI 4-Lane - RGB888: */
 static const struct adv748x_reg_value adv748x_init_txa_4lane[] = {
@@ -683,7 +652,7 @@ static int adv748x_reset(struct adv748x_state *state)
 	if (ret < 0)
 		return ret;
 
-	ret = adv748x_write_regs(state, adv748x_set_slave_address);
+	ret = adv748x_set_slave_addresses(state);
 	if (ret < 0)
 		return ret;
 
@@ -839,6 +808,30 @@ static void adv748x_dt_cleanup(struct adv748x_state *state)
 		of_node_put(state->endpoints[i]);
 }
 
+static struct snd_soc_dai_driver adv748x_dai = {
+	.name = "adv748x-i2s",
+	.capture = {
+		.stream_name	= "Capture",
+		.channels_min	= 8,
+		.channels_max	= 8,
+		.rates = SNDRV_PCM_RATE_48000,
+		.formats = SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_U24_LE,
+	 },
+};
+
+static	int adv748x_of_xlate_dai_name(struct snd_soc_component *component,
+				      struct of_phandle_args *args,
+				      const char **dai_name)
+{
+	if (dai_name)
+		*dai_name = adv748x_dai.name;
+	return 0;
+}
+
+static const struct snd_soc_component_driver adv748x_codec = {
+	.of_xlate_dai_name = adv748x_of_xlate_dai_name,
+};
+
 static int adv748x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
@@ -888,7 +881,7 @@ static int adv748x_probe(struct i2c_client *client,
 	ret = adv748x_identify_chip(state);
 	if (ret) {
 		adv_err(state, "Failed to identify chip");
-		goto err_cleanup_clients;
+		goto err_cleanup_dt;
 	}
 
 	/* Configure remaining pages as I2C clients with regmap access */
@@ -933,8 +926,15 @@ static int adv748x_probe(struct i2c_client *client,
 		goto err_cleanup_txa;
 	}
 
+	ret = devm_snd_soc_register_component(state->dev, &adv748x_codec, &adv748x_dai, 1);
+	if (ret < 0) {
+		adv_err(state, "Failed to register the codec driver");
+		goto err_cleanup_txb;
+	}
 	return 0;
 
+err_cleanup_txb:
+	adv748x_csi2_cleanup(&state->txb);
 err_cleanup_txa:
 	adv748x_csi2_cleanup(&state->txa);
 err_cleanup_afe:

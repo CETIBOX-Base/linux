@@ -383,7 +383,7 @@ u32 *rsnd_mod_get_status(struct rsnd_dai_stream *io,
 			 enum rsnd_mod_type type);
 struct rsnd_mod *rsnd_mod_next(int *iterator,
 			       struct rsnd_dai_stream *io,
-			       enum rsnd_mod_type *array,
+			       const enum rsnd_mod_type *array,
 			       int array_size);
 #define for_each_rsnd_mod(iterator, pos, io)				\
 	for (iterator = 0;						\
