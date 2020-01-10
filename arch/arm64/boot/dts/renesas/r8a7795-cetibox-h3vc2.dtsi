@@ -234,12 +234,6 @@
 		clock-frequency = <24576000>;
 	};
 
-	usb_extal_clk: usb_extal {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <100000000>;
-	};
-
 	ext_dclk: dclk {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -250,18 +244,6 @@
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <16000000>;
-	};
-
-	usb3_phy: usb-phy@e65e8000 {
-		compatible = "renesas,usb3-phy-r8a7795", "renesas,rcar-gen3-usb3-phy";
-		reg = <0 0xe65ee000 0 0x90>;
-		/*interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH>;*/
-		clocks = <&cpg CPG_MOD 328>, <&usb_extal_clk>;
-		clock-names = "usb3-if", "usb_extal";
-		power-domains = <&sysc R8A7795_PD_ALWAYS_ON>;
-		#phy-cells = <0>;
-
-		status = "okay";
 	};
 
 	cetibox-power {
@@ -739,6 +721,11 @@
 		function = "usb2_ch3";
 	};
 
+	usb30_pins: usb30 {
+		groups = "usb30";
+		function = "usb30";
+	};
+
 	msiof0_pins: spi1 {
 		groups = "msiof0_clk", "msiof0_rxd", "msiof0_txd";
 		function = "msiof0";
@@ -938,14 +925,17 @@
 };
 
 &usb3_peri0 {
+	companion = <&xhci0>;
+
+	phys = <&usb3_phy0>;
+	phy-names = "usb";
+
 	status = "okay";
 };
 
 &xhci0 {
-	iommus = <&ipmmu_hc 12>;
-
-	phys = <&usb3_phy>;
-	phy-names = "usb";
+	pinctrl-0 = <&usb30_pins>;
+	pinctrl-names = "default";
 
 	status = "okay";
 };
@@ -979,6 +969,19 @@
 	dr_mode = "otg";
 	status = "okay";
 };
+
+&usb3_phy0 {
+	status = "okay";
+};
+
+&usb3s0_clk {
+	clock-frequency = <100000000>;
+};
+
+&usb_extal_clk {
+	clock-frequency = <50000000>;
+};
+
 
 &rwdt {
 	timeout-sec = <60>;
