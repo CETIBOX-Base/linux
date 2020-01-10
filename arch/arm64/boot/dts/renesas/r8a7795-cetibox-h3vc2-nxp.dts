@@ -1,0 +1,69 @@
+/*
+ * Device Tree Source for the H3VC2 (R-Car VehicleCompute2) board
+ *
+ * Copyright (C) 2018 Renesas Electronics Corp.
+ * Copyright (C) 2018 Cogent Embedded, Inc.
+ *
+ * This file is licensed under the terms of the GNU General Public License
+ * version 2.  This program is licensed "as is" without any warranty of any
+ * kind, whether express or implied.
+ */
+
+/dts-v1/;
+#include "r8a7795-cetibox-h3vc2.dtsi"
+
+/ {
+	model = "Renesas VC2 board based on r8a7795 ES2.0+ with NXP SJA1105 switch";
+	compatible ="cetitec,h3-vc2-v3", "renesas,h3vc2", "renesas,r8a7795";
+};
+
+&avb {
+	phy1f: dummy_phy {
+		compatible = "ethernet-phy-idFFFF.FFFE";
+		reg = <0x1f>;
+		speed = <1000>;
+	};
+
+	phy1: ksz8091rnb {
+		reg = <5>;
+		speed = <100>;
+	};
+
+	phy2: ksz9031rnx {
+		reg = <6>;
+		speed = <1000>;
+	};
+};
+
+&gpio2 {
+	net_reset {
+		gpio-hog;
+		gpios = <10 GPIO_ACTIVE_LOW>;
+		output-low;
+	};
+};
+
+&msiof1 {
+	/* Ethernet switch 1, configured by userspace. */
+	spidev@1 {
+		compatible = "nxp,sja1105";
+		reg = <1>;
+		spi-max-frequency = <66666666>;
+		spi-cpha;
+		renesas,dtdl = <200>;
+		renesas,syncdl = <300>;
+
+		phy-handles = <&phy1 1>, <&phy2 0>;
+		phy-modes = "rmii", "rgmii";
+	};
+
+	/* Ethernet switch 2, configured by userspace. */
+	spidev@2 {
+		compatible = "nxp,sja1105";
+		reg = <2>;
+		spi-max-frequency = <66666666>;
+		spi-cpha;
+		renesas,dtdl = <200>;
+		renesas,syncdl = <300>;
+	};
+};

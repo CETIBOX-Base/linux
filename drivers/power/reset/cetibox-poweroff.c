@@ -66,6 +66,9 @@ static void wakecpld_poweroff(void)
 		dev_err(&cetibox_poweroff_pdev->dev, "%lu-bit %s failed at 0x%02x: %d\n", sizeof(data)*8,
 				"write", I2C_REG, err);
 	}
+
+	while(true)
+		cpu_relax();
 }
 
 static void wakecpld_reconfigure(enum reboot_mode reboot_mode, const char *arg)

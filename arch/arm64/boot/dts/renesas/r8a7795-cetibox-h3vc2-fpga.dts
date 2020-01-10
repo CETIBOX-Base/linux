@@ -1,0 +1,41 @@
+/*
+ * Device Tree Source for the H3VC2 (R-Car VehicleCompute2) board
+ *
+ * Copyright (C) 2018 Renesas Electronics Corp.
+ * Copyright (C) 2018 Cogent Embedded, Inc.
+ *
+ * This file is licensed under the terms of the GNU General Public License
+ * version 2.  This program is licensed "as is" without any warranty of any
+ * kind, whether express or implied.
+ */
+
+/dts-v1/;
+#include "r8a7795-cetibox-h3vc2.dtsi"
+
+/ {
+	model = "Renesas VC2 board based on r8a7795 ES2.0+ with RSwitch FPGA";
+	compatible ="cetitec,h3-vc2-v3", "renesas,h3vc2", "renesas,r8a7795";
+
+};
+
+&avb {
+	phy1f: dummy_phy {
+		compatible = "ethernet-phy-idFFFF.FFFE";
+		reg = <0x1f>;
+		speed = <100>;
+	};
+
+	phy1: ksz8091rnb {
+		reg = <5>;
+		speed = <100>;
+	};
+
+	phy2: ksz9031rnx {
+		reg = <6>;
+		speed = <1000>;
+	};
+};
+
+&pciec1 {
+	status = "okay";
+};
