@@ -281,8 +281,7 @@ int adv748x_csi2_init(struct adv748x_state *state, struct adv748x_csi2 *tx)
 	if (!is_tx_enabled(tx))
 		return 0;
 
-	ep = state->endpoints[tx->port];
-	if (of_property_read_u32(ep, "virtual-channel", &ch))
+	if (of_property_read_u32(state->endpoints[tx->port], "virtual-channel", &ch))
 		ch = 0;
 
 	if (ch > 3)
