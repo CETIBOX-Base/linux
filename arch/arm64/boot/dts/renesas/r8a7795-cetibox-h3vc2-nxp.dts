@@ -45,7 +45,7 @@
 
 &msiof1 {
 	/* Ethernet switch 1, configured by userspace. */
-	spidev@1 {
+	switch1: spidev@1 {
 		compatible = "nxp,sja1105";
 		reg = <1>;
 		spi-max-frequency = <66666666>;
@@ -55,15 +55,20 @@
 
 		phy-handles = <&phy1 1>, <&phy2 0>;
 		phy-modes = "rmii", "rgmii";
+
+		sja-host-port = <&avb 3>;
+		sja-cascade-port = <&switch2 2>;
 	};
 
 	/* Ethernet switch 2, configured by userspace. */
-	spidev@2 {
+	switch2: spidev@2 {
 		compatible = "nxp,sja1105";
 		reg = <2>;
 		spi-max-frequency = <66666666>;
 		spi-cpha;
 		renesas,dtdl = <200>;
 		renesas,syncdl = <300>;
+
+		sja-host-port = <&switch1 4>;
 	};
 };
