@@ -406,7 +406,7 @@ int adv748x_update_bits(struct adv748x_state *state, u8 page, u8 reg, u8 mask, u
 #define io_update(s, r, m, v) adv748x_update_bits(s, ADV748X_PAGE_IO, r, m, v)
 
 #define hdmi_read(s, r) adv748x_read(s, ADV748X_PAGE_HDMI, r)
-#define hdmi_read16(s, r, m) (((hdmi_read(s, r) << 8) | hdmi_read(s, r+1)) & m)
+#define hdmi_read16(s, r, m) (((hdmi_read(s, r) << 8) | hdmi_read(s, (r)+1)) & (m))
 #define hdmi_write(s, r, v) adv748x_write(s, ADV748X_PAGE_HDMI, r, v)
 #define hdmi_update(s, r, m, v) adv748x_update_bits(s, ADV748X_PAGE_HDMI, r, m, v)
 
