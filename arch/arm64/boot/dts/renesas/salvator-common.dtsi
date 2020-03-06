@@ -466,20 +466,19 @@
 		shunt-resistor-micro-ohms = <5000>;
 	};
 
-	video-receiver@70 {
+	adv7482_hdmi_in: video-receiver@70 {
 		compatible = "adi,adv7482";
 		reg = <0x70>;
 
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#sound-dai-cells = <0>;
+		#clock-cells = <0>; /* the MCLK for I2S output */
 
 		interrupt-parent = <&gpio6>;
 		interrupt-names = "intrq1", "intrq2";
 		interrupts = <30 IRQ_TYPE_LEVEL_LOW>,
 			     <31 IRQ_TYPE_LEVEL_LOW>;
-		clocks = <&rcar_sound 3>, <&audio_clk_c>;
-		clock-names = "clk-hdmi-video", "clk-hdmi-i2s-mclk";
+
 		port@7 {
 			reg = <7>;
 
@@ -520,7 +519,8 @@
 			reg = <12>;
 
 			adv7482_i2s: endpoint {
-				/* remote-endpoint defined in the board file */
+				remote-endpoint = <&rsnd_endpoint3>;
+				system-clock-direction-out;
 			};
 		};
 	};
@@ -694,7 +694,7 @@
 
 	sound_pins: sound {
 		groups = "ssi01239_ctrl", "ssi0_data", "ssi1_data_a",
-		         "ssi4_data";
+			 "ssi4_data", "ssi4_ctrl";
 		function = "ssi";
 	};
 
@@ -775,6 +775,7 @@
 		 <&cpg CPG_MOD 1020>, <&cpg CPG_MOD 1021>,
 		 <&cpg CPG_MOD 1019>, <&cpg CPG_MOD 1018>,
 		 <&audio_clk_a>, <&cs2000>,
+		 <&adv7482_hdmi_in>,
 		 <&cpg CPG_CORE CPG_AUDIO_CLK_I>;
 	clock-names = "ssi-all",
 		      "ssi.9", "ssi.8", "ssi.7", "ssi.6",
@@ -786,7 +787,7 @@
 		      "mix.1", "mix.0",
 		      "ctu.1", "ctu.0",
 		      "dvc.0", "dvc.1",
-		      "clk_a", "clk_b", "clk_i";
+		      "clk_a", "clk_b", "clk_c", "clk_i";
 
 	ports {
 		#address-cells = <1>;
@@ -802,6 +803,21 @@
 
 				playback = <&ssi0 &src0 &dvc0>;
 				capture  = <&ssi1 &src1 &dvc1>;
+			};
+		};
+		rsnd_port3: port@3 {
+			reg = <3>;
+			rsnd_endpoint3: endpoint {
+				remote-endpoint = <&adv7482_i2s>;
+
+				dai-tdm-slot-num = <8>;
+				dai-tdm-slot-width = <32>;
+				dai-format = "left_j";
+				mclk-fs = <256>;
+				bitclock-master = <&adv7482_i2s>;
+				frame-master = <&adv7482_i2s>;
+
+				capture = <&ssi4>;
 			};
 		};
 	};
