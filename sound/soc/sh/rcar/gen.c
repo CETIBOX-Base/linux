@@ -338,6 +338,9 @@ static int rsnd_gen2_probe(struct rsnd_priv *priv)
 		RSND_GEN_S_REG(SRCOUT_TIMSEL3,	0x54),
 		RSND_GEN_S_REG(SRCOUT_TIMSEL4,	0x58),
 		RSND_GEN_S_REG(CMDOUT_TIMSEL,	0x5c),
+		RSND_GEN_S_REG(AVB_SYNC_SEL0,  0x104),
+		RSND_GEN_S_REG(AVB_SYNC_SEL1,  0x10c),
+		RSND_GEN_S_REG(AVB_SYNC_SEL2,  0x110),
 	};
 	static const struct rsnd_regmap_field_conf conf_ssi[] = {
 		RSND_GEN_M_REG(SSICR,		0x00,	0x40),

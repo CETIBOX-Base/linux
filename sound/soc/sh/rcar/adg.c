@@ -614,11 +614,80 @@ static void rsnd_adg_clk_dbg_info(struct rsnd_priv *priv, struct rsnd_adg *adg)
 #define rsnd_adg_clk_dbg_info(priv, adg)
 #endif
 
+static int rsnd_adg_avb_sync(struct rsnd_priv *priv, struct rsnd_adg *adg)
+{
+	static const char *const avb_adg_map[] = {
+		[0] = "0",
+		[8] = "audio_clk_div.0",
+		[9] = "audio_clk_div.1",
+		[10] = "audio_clk_div.2",
+		[16] = "ssi.0",
+		[17] = "ssi.1",
+		[18] = "ssi.2",
+		[19] = "ssi.3",
+		[20] = "ssi.4",
+		[21] = "ssi.5",
+		[22] = "ssi.6",
+		[23] = "ssi.7",
+		[25] = "ssi.9",
+		[32] = "avb_div8.0",
+		[33] = "avb_div8.1",
+		[34] = "avb_div8.2",
+		[35] = "avb_div8.3",
+		[36] = "avb_div8.4",
+		[37] = "avb_div8.5",
+		[38] = "avb_div8.6",
+		[39] = "avb_div8.7",
+	};
+	struct device *dev = rsnd_priv_to_dev(priv);
+	struct device_node *np = dev->of_node;
+	struct rsnd_mod *adg_mod = rsnd_mod_get(adg);
+	int ret, num_entries, i, j;
+	u32 avb_sync_sel[3] = {0};
+
+	ret = of_property_count_strings(np, "rcar_sound,avb-adg-sync");
+	if (ret < 0)
+		return ret;
+	if (ret > 12) {
+		dev_warn(dev, "Ignoring excess avb-adg-sync mappings (max. 12)\n");
+		ret = 12;
+	}
+	num_entries = ret;
+
+	for (i = 0;i < num_entries;++i) {
+		const char* mapping;
+		ret = of_property_read_string_index(np, "rcar_sound,avb-adg-sync", i, &mapping);
+		if (ret != 0)
+			return ret;
+
+		for(j = 0;j < ARRAY_SIZE(avb_adg_map);++j) {
+			if (avb_adg_map[j] && strcmp(mapping, avb_adg_map[j]) == 0)
+				break;
+		}
+		if (j == ARRAY_SIZE(avb_adg_map)) {
+			dev_warn(dev, "Invalid mapping in avb-adg-sync: %s at index %d\n", mapping, i);
+			return -EINVAL;
+		}
+		avb_sync_sel[2-i/4] |= (u32)j << (8*(i%4));
+	}
+
+	for(i = 0;i < 3;++i)
+		dev_dbg(dev, "avb_sync_sel[%d] = %08x\n", i, avb_sync_sel[i]);
+
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL0, avb_sync_sel[0]);
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL1, avb_sync_sel[1]);
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL2, avb_sync_sel[2]);
+
+	return 0;
+}
+
 int rsnd_adg_probe(struct rsnd_priv *priv)
 {
 	struct rsnd_adg *adg;
 	struct device *dev = rsnd_priv_to_dev(priv);
-	int ret;
+	struct device_node *np = dev->of_node;
+	struct clk *clk;
+	int ret, i;
 
 	adg = devm_kzalloc(dev, sizeof(*adg), GFP_KERNEL);
 	if (!adg)
@@ -632,12 +701,22 @@ int rsnd_adg_probe(struct rsnd_priv *priv)
 	rsnd_adg_get_clkin(priv, adg);
 	rsnd_adg_get_clkout(priv, adg);
 	rsnd_adg_clk_dbg_info(priv, adg);
+	ret = rsnd_adg_avb_sync(priv, adg);
+	if (ret)
+		goto clk_remove;
 
 	priv->adg = adg;
 
 	rsnd_adg_clk_enable(priv);
 
 	return 0;
+  clk_remove:
+	for_each_rsnd_clkout(clk, adg, i)
+		if (adg->clkout[i])
+			clk_unregister_fixed_rate(adg->clkout[i]);
+
+	of_clk_del_provider(np);
+	return ret;
 }
 
 void rsnd_adg_remove(struct rsnd_priv *priv)

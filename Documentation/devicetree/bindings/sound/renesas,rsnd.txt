@@ -392,6 +392,9 @@ Optional properties:
 - resets			: References to SSI resets.
 - reset-names			: List of valid reset names.
 				  "ssi-all", "ssi.X"
+- rcar_sound,avb-adg-sync       : List of signals to be output on the avb_adg*_sync
+				  lines. "0", "audio_clk_div.[0-2]", "ssi.[0-7,9]"
+				  and "avb_div8.[0-7]" are valid signals.
 
 SSI subnode properties:
 - interrupts			: Should contain SSI interrupt for PIO transfer
