@@ -9,17 +9,15 @@
  * option) any later version.
  */
 
+#include "adv748x.h"
+
 #include <linux/module.h>
 #include <linux/mutex.h>
 
-#include <media/v4l2-ctrls.h>
-#include <media/v4l2-device.h>
 #include <media/v4l2-dv-timings.h>
 #include <media/v4l2-ioctl.h>
 
 #include <uapi/linux/v4l2-dv-timings.h>
-
-#include "adv748x.h"
 
 #define HDMI_AOUT_NONE 0
 #define HDMI_AOUT_I2S 1
