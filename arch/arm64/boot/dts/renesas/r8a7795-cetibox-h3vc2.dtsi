@@ -809,6 +809,8 @@
 		      "dvc.0", "dvc.1",
 		      "clk_a", "clk_b", "clk_c", "clk_i";
 
+	rcar_sound,avb-adg-sync = "ssi.0", "ssi.9", "avb_div8.0", "audio_clk_div.1";
+
 	ports {
 		#address-cells = <1>;
 		#size-cells = <0>;
