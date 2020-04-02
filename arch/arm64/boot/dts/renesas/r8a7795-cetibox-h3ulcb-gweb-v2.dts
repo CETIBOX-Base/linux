@@ -615,6 +615,7 @@
 		 <&cpg CPG_CORE R8A7795_CLK_S0D4>;
 
 	rcar_sound,avb-adg-sync = "ssi.0", "0", "avb_div8.0", "audio_clk_div.1";
+	rcar_sound,audio-clk-div = <0 512 0>;
 
 	ports {
 		#address-cells = <1>;
