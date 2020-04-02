@@ -395,6 +395,11 @@ Optional properties:
 - rcar_sound,avb-adg-sync       : List of signals to be output on the avb_adg*_sync
 				  lines. "0", "audio_clk_div.[0-2]", "ssi.[0-7,9]"
 				  and "avb_div8.[0-7]" are valid signals.
+- rcar_sound,audio-clk-div	: List of three integers to set the dividers in the
+				  audio_clk_div3. These drive the audio_clk_div.[0-2]
+				  inputs of the avb-adg-sync multiplexer (see above)
+				  with the clk_a, clk_b, clk_c inputs divided by the
+				  specified value.
 
 SSI subnode properties:
 - interrupts			: Should contain SSI interrupt for PIO transfer

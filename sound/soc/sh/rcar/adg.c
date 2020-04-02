@@ -681,6 +681,39 @@ static int rsnd_adg_avb_sync(struct rsnd_priv *priv, struct rsnd_adg *adg)
 	return 0;
 }
 
+static int rsnd_audio_clk_div(struct rsnd_priv *priv, struct rsnd_adg *adg)
+{
+	struct device *dev = rsnd_priv_to_dev(priv);
+	struct device_node *np = dev->of_node;
+	struct rsnd_mod *adg_mod = rsnd_mod_get(adg);
+	u32 dividers[3] = {0};
+	u32 avb_sync_div = 0;
+	int ret, i;
+
+	/* If property does not exist, use defaults (0) */
+	ret = of_property_read_u32_array(np, "rcar_sound,audio-clk-div", dividers,
+					 ARRAY_SIZE(dividers));
+	if (ret < 0 && ret != -EINVAL)
+		return ret;
+
+	for (i = 0;i < 3;++i) {
+		unsigned log;
+		if (!dividers[i])
+			continue;
+		if (!is_power_of_2(dividers[i]) || dividers [i] > (1u<<15)) {
+			dev_warn(dev, "Invalid divider for audio_clk_div3[%d]: %u\n",
+				 i, dividers[i]);
+			return -EINVAL;
+		}
+		log = ilog2(dividers[i]);
+		avb_sync_div |= (log&0xf)<<(i*4);
+	}
+	dev_dbg(dev, "avb_sync_div0 = %08x\n", avb_sync_div);
+	rsnd_mod_write(adg_mod, AVB_SYNC_DIV0, avb_sync_div);
+
+	return ret;
+}
+
 int rsnd_adg_probe(struct rsnd_priv *priv)
 {
 	struct rsnd_adg *adg;
@@ -704,9 +737,11 @@ int rsnd_adg_probe(struct rsnd_priv *priv)
 	ret = rsnd_adg_avb_sync(priv, adg);
 	if (ret)
 		goto clk_remove;
+	ret = rsnd_audio_clk_div(priv, adg);
+	if (ret)
+		goto clk_remove;
 
 	priv->adg = adg;
-
 	rsnd_adg_clk_enable(priv);
 
 	return 0;
