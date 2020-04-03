@@ -920,13 +920,12 @@ static int adv748x_probe(struct i2c_client *client,
 		goto err_cleanup_txa;
 	}
 
-	ret = devm_snd_soc_register_component(state->dev, &adv748x_codec, &adv748x_dai, 1);
-	if (ret < 0) {
-		adv_err(state, "Failed to register the codec driver");
+	ret = adv748x_dai_init(&state->dai);
+	if (ret) {
+		adv_err(state, "Failed to probe DAI\n");
 		goto err_cleanup_txb;
 	}
 	return 0;
-
 err_cleanup_txb:
 	adv748x_csi2_cleanup(&state->txb);
 err_cleanup_txa:
@@ -949,6 +948,7 @@ static int adv748x_remove(struct i2c_client *client)
 {
 	struct adv748x_state *state = i2c_get_clientdata(client);
 
+	adv748x_dai_cleanup(&state->dai);
 	adv748x_afe_cleanup(&state->afe);
 	adv748x_hdmi_cleanup(&state->hdmi);
 
