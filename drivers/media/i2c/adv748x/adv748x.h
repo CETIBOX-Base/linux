@@ -119,7 +119,6 @@ struct adv748x_hdmi {
 		unsigned int blocks;
 	} edid;
 	unsigned int use_lane;
-	int audio_out;
 };
 
 #define adv748x_ctrl_to_hdmi(ctrl) \
