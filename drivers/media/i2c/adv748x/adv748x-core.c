@@ -152,10 +152,9 @@ int adv748x_write(struct adv748x_state *state, u8 page, u8 reg, u8 value)
 	return regmap_write(state->regmap[page], reg, value);
 }
 
-int adv748x_update_bits(struct adv748x_state *state, u8 page, u8 reg, u8 mask, u8 value)
+int adv748x_update_bits(struct adv748x_state *state, u8 page, u8 reg, u8 mask,
+			u8 value)
 {
-	dev_dbg(state->dev, "update %s 0x%02x {=%02x & %02x}\n",
-		adv748x_default_addresses[page].name, reg, value, mask);
 	return regmap_update_bits(state->regmap[page], reg, mask, value);
 }
 

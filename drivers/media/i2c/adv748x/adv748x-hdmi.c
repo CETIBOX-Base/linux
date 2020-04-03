@@ -733,7 +733,7 @@ static int adv748x_hdmi_audio_mute(struct adv748x_hdmi *hdmi, int enable)
 	struct adv748x_state *state = adv748x_hdmi_to_state(hdmi);
 
 	v4l2_dbg(0, 0, &hdmi->sd, "audio %smute (%d)\n", enable ? "" : "de", enable);
-	return hdmi_update(state, ADV748X_HDMI_MUTE_CTRL,
+	return hdmi_clrset(state, ADV748X_HDMI_MUTE_CTRL,
 			   ADV748X_HDMI_MUTE_CTRL_MUTE_AUDIO,
 			   enable ? 0xff : 0);
 }
@@ -895,7 +895,7 @@ static int adv748x_hdmi_g_audout(struct adv748x_hdmi *hdmi, struct v4l2_audioout
 static int set_audio_pads_state(struct adv748x_state *state, int on)
 {
 	v4l2_dbg(0, 0, &state->hdmi.sd, "set audio pads %s\n", on ? "on" : "off");
-	return io_update(state, ADV748X_IO_PAD_CONTROLS,
+	return io_clrset(state, ADV748X_IO_PAD_CONTROLS,
 			 ADV748X_IO_PAD_CONTROLS_TRI_AUD | ADV748X_IO_PAD_CONTROLS_PDN_AUD,
 			 on ? 0 : 0xff);
 }
@@ -904,12 +904,12 @@ static int set_dpll_mclk_fs(struct adv748x_state *state, int fs)
 {
 	if (fs % 128 || fs > 768)
 		return -EINVAL;
-	return dpll_update(state, ADV748X_DPLL_MCLK_FS, ADV748X_DPLL_MCLK_FS_N_MASK, (fs / 128) - 1);
+	return dpll_clrset(state, ADV748X_DPLL_MCLK_FS, ADV748X_DPLL_MCLK_FS_N_MASK, (fs / 128) - 1);
 }
 
 static int set_i2s_format(struct adv748x_state *state, uint outmode, uint bitwidth)
 {
-	return hdmi_update(state, ADV748X_HDMI_I2S,
+	return hdmi_clrset(state, ADV748X_HDMI_I2S,
 			   ADV748X_HDMI_I2SBITWIDTH_MASK | ADV748X_HDMI_I2SOUTMODE_MASK,
 			   (outmode << ADV748X_HDMI_I2SOUTMODE_SHIFT) | bitwidth);
 }
@@ -918,12 +918,12 @@ static int set_i2s_tdm_mode(struct adv748x_state *state, int is_tdm)
 {
 	int ret;
 
-	ret = hdmi_update(state, ADV748X_HDMI_AUDIO_MUTE_SPEED,
+	ret = hdmi_clrset(state, ADV748X_HDMI_AUDIO_MUTE_SPEED,
 			  ADV748X_MAN_AUDIO_DL_BYPASS | ADV748X_AUDIO_DELAY_LINE_BYPASS,
 			  is_tdm ? 0xff : 0);
 	if (ret < 0)
 		goto fail;
-	ret = hdmi_update(state, ADV748X_HDMI_REG_6D, ADV748X_I2S_TDM_MODE_ENABLE,
+	ret = hdmi_clrset(state, ADV748X_HDMI_REG_6D, ADV748X_I2S_TDM_MODE_ENABLE,
 			  is_tdm ? 0xff : 0);
 	if (ret < 0)
 		goto fail;
