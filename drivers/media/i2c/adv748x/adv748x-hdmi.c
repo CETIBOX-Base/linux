@@ -9,21 +9,15 @@
  * option) any later version.
  */
 
+#include "adv748x.h"
+
 #include <linux/module.h>
 #include <linux/mutex.h>
 
-#include <media/v4l2-ctrls.h>
-#include <media/v4l2-device.h>
 #include <media/v4l2-dv-timings.h>
 #include <media/v4l2-ioctl.h>
 
 #include <uapi/linux/v4l2-dv-timings.h>
-
-#include "adv748x.h"
-
-#define HDMI_AOUT_NONE 0
-#define HDMI_AOUT_I2S 1
-#define HDMI_AOUT_I2S_TDM 2
 
 static int default_audio_out;
 module_param_named(aout, default_audio_out, int, 0444);
@@ -730,21 +724,59 @@ static const struct v4l2_subdev_pad_ops adv748x_pad_ops_hdmi = {
 	.enum_dv_timings = adv748x_hdmi_enum_dv_timings,
 };
 
-static int adv748x_hdmi_audio_mute(struct adv748x_hdmi *hdmi, int enable)
-{
-	struct adv748x_state *state = adv748x_hdmi_to_state(hdmi);
-
-	v4l2_dbg(0, 0, &hdmi->sd, "audio %smute (%d)\n", enable ? "" : "de", enable);
-	return hdmi_update(state, ADV748X_HDMI_MUTE_CTRL,
-			   ADV748X_HDMI_MUTE_CTRL_MUTE_AUDIO,
-			   enable ? 0xff : 0);
-}
-
-struct tmds_params
-{
+struct tmds_params {
 	u32 cts, n;
 	u16 tmdsfreq, tmdsfreq_frac;
 };
+
+static inline const char *cs_data_smpl_freq_str(u8 cs_data_3)
+{
+	switch (cs_data_3 & 0xf) {
+	case 0:
+		return "44.1";
+	case 2:
+		return "48";
+	case 3:
+		return "32";
+	case 8:
+		return "88.2";
+	case 10:
+		return "96";
+	case 12:
+		return "176";
+	case 14:
+		return "192";
+	}
+	return "reserved";
+}
+
+static inline const char *cs_data_clk_lvl_str(u8 cs_data_3)
+{
+	switch (cs_data_3 & 0x30) {
+	case 0:
+		return "Level II";
+	case 1:
+		return "Level I";
+	case 2:
+		return "Level III, variable pitch shifted";
+	}
+	return "reserved";
+}
+
+static inline const char *i2s_out_mode_str(u8 i2s_mode)
+{
+	switch (i2s_mode & ADV748X_HDMI_I2SOUTMODE_MASK) {
+	case 0 << ADV748X_HDMI_I2SOUTMODE_SHIFT:
+		return "I2S";
+	case 1 << ADV748X_HDMI_I2SOUTMODE_SHIFT:
+		return "right";
+	case 2 << ADV748X_HDMI_I2SOUTMODE_SHIFT:
+		return "left";
+	case 3 << ADV748X_HDMI_I2SOUTMODE_SHIFT:
+		return "spdif";
+	}
+	return "";
+}
 
 static int adv748x_hdmi_log_status(struct v4l2_subdev *sd)
 {
@@ -758,87 +790,80 @@ static int adv748x_hdmi_log_status(struct v4l2_subdev *sd)
 
 	/* Audio control and configuration */
 	rv = io_read(state, 0x71);
-	pr_info("cable_det_a_raw         %s\n", rv & BIT(6) ? "detected" : "no cable");
-	pr_info("tmds_clk_a_raw          %s\n", rv & BIT(3) ? "detected" : "no TMDS clock");
-	pr_info("tmdspll_lck_a_raw       %s\n", rv & BIT(7) ? "locked to incoming clock" : "not locked");
-	pr_info("hdmi_encrpt_a_raw       %s\n", rv & BIT(5) ? "current frame encrypted" : "not encrypted");
+	pr_info("cable_det_a_raw         %s\n",
+		rv & BIT(6) ? "detected" : "no cable");
+	pr_info("tmds_clk_a_raw          %s\n",
+		rv & BIT(3) ? "detected" : "no TMDS clock");
+	pr_info("tmdspll_lck_a_raw       %s\n",
+		rv & BIT(7) ? "locked to incoming clock" : "not locked");
+	pr_info("hdmi_encrpt_a_raw       %s\n",
+		rv & BIT(5) ? "current frame encrypted" : "not encrypted");
 	rv = hdmi_read(state, 0x04);
 	pr_info("audio_pll_locked        0x%02lx\n", rv & BIT(0));
 	pr_info("tmds_pll_locked         0x%02lx\n", rv & BIT(1));
 	rv = io_read(state, 0x6c);
-	pr_info("gamut_mdata_raw         %s\n", rv & BIT(0) ? "received" : "-");
-	pr_info("audio_c_pckt_raw        %s\n", rv & BIT(1) ? "ACR received" : "-");
-	pr_info("gen_ctl_pckt_raw        %s\n", rv & BIT(2) ? "received" : "-");
-	pr_info("hdmi_mode_raw           %s\n", rv & BIT(3) ? "HDMI/MHL" : "-");
-	pr_info("audio_ch_md_raw         %s\n", rv & BIT(4) ? "multichannel" : "-");
-	pr_info("av_mute_raw             %s\n", rv & BIT(5) ? "received" : "-");
-	pr_info("internal_mute_raw       %s\n", rv & BIT(6) ? "asserted" : "-");
-	pr_info("cs_data_valid_raw       %s\n", rv & BIT(7) ? "valid" : "-");
+	pr_info("gamut_mdata_raw         %s\n",
+		rv & BIT(0) ? "received" : "-");
+	pr_info("audio_c_pckt_raw        %s\n",
+		rv & BIT(1) ? "ACR received" : "-");
+	pr_info("gen_ctl_pckt_raw        %s\n",
+		rv & BIT(2) ? "received" : "-");
+	pr_info("hdmi_mode_raw           %s\n",
+		rv & BIT(3) ? "HDMI/MHL" : "-");
+	pr_info("audio_ch_md_raw         %s\n",
+		rv & BIT(4) ? "multichannel" : "-");
+	pr_info("av_mute_raw             %s\n",
+		rv & BIT(5) ? "received" : "-");
+	pr_info("internal_mute_raw       %s\n",
+		rv & BIT(6) ? "asserted" : "-");
+	pr_info("cs_data_valid_raw       %s\n",
+		rv & BIT(7) ? "valid" : "-");
 	rv = hdmi_read(state, 0x6d);
-	pr_info("i2s_tdm_mode_enable     %s\n", rv & BIT(7) ? "TDM (multichannel)" : "I2S (stereo)");
+	pr_info("i2s_tdm_mode_enable     %s\n",
+		rv & BIT(7) ? "TDM (multichannel)" : "I2S (stereo)");
 	i2s_tdm_mode_enable = rv & BIT(7);
 
 	/* i2s_tdm_mode_enable must be unset */
-	if (adv748x_read_block(state, ADV748X_PAGE_HDMI, 0x36, cs_data, ARRAY_SIZE(cs_data)) == 0) {
-		pr_info("... cs_data %s\n", cs_data[0] & BIT(0) ? "pro" : "consumer");
-		pr_info("... cs_data %s\n", cs_data[0] & BIT(1) ? "other" : "L-PCM");
-		pr_info("... cs_data %s\n", cs_data[0] & BIT(2) ? "no copyright" : "copyright asserted");
-		pr_info("... cs_data %s (%lu)\n", cs_data[0] & GENMASK(5, 3) ? "50/15" : "no pre-emphasis",
+	if (adv748x_read_block(state, ADV748X_PAGE_HDMI, 0x36,
+			       cs_data, ARRAY_SIZE(cs_data)) == 0) {
+		pr_info("... cs_data %s\n",
+			cs_data[0] & BIT(0) ? "pro" : "consumer");
+		pr_info("... cs_data %s\n",
+			cs_data[0] & BIT(1) ? "other" : "L-PCM");
+		pr_info("... cs_data %s copyright\n",
+			cs_data[0] & BIT(2) ? "no" : "asserted");
+		pr_info("... cs_data %s (%lu)\n",
+			cs_data[0] & GENMASK(5, 3) ?
+			"50/15" : "no pre-emphasis",
 			(cs_data[0] & GENMASK(5, 3)) >> 4);
 		pr_info("... cs_data channels status mode %lu\n",
 			(cs_data[0] & GENMASK(7, 6)) >> 7);
 		pr_info("... cs_data category code 0x%02x\n", cs_data[1]);
 		pr_info("... cs_data source number %u\n", cs_data[2] & 0xf);
-		pr_info("... cs_data channel number %u\n", (cs_data[2] & 0xf0) >> 4);
+		pr_info("... cs_data channel number %u\n",
+			(cs_data[2] & 0xf0) >> 4);
 		pr_info("... cs_data sampling frequency %s (%u)\n",
-			({
-			 const char *s;
-			 switch (cs_data[3] & 0xf) {
-			 case 0: s = "44.1"; break;
-			 case 2: s = "48"; break;
-			 case 3: s = "32"; break;
-			 case 8: s = "88.2"; break;
-			 case 10: s = "96"; break;
-			 case 12: s = "176"; break;
-			 case 14: s = "192"; break;
-			 default: s = "reserved"; break;
-			 }
-			 s;
-			 }), cs_data[3] & 0xf);
+			cs_data_smpl_freq_str(cs_data[3]), cs_data[3] & 0xf);
 		pr_info("... cs_data clock accuracy %s\n",
-			({
-			 const char *s;
-			 switch (cs_data[3] & 0x30) {
-			 case 0: s = "Level II"; break;
-			 case 1: s = "Level I"; break;
-			 case 2: s = "Level III, variable pitch shifted"; break;
-			 default: s = "reserved";
-			 }
-			 s;
-			 }));
+			cs_data_clk_lvl_str(cs_data[3]));
 	}
 	rv = hdmi_read(state, ADV748X_HDMI_I2S);
-	pr_info("i2soutmode              %s\n", ({
-					 const char *r = "";
-					 switch (rv & ADV748X_HDMI_I2SOUTMODE_MASK) {
-					 case 0 << ADV748X_HDMI_I2SOUTMODE_SHIFT: r = "I2S"; break;
-					 case 1 << ADV748X_HDMI_I2SOUTMODE_SHIFT: r = "right"; break;
-					 case 2 << ADV748X_HDMI_I2SOUTMODE_SHIFT: r = "left"; break;
-					 case 3 << ADV748X_HDMI_I2SOUTMODE_SHIFT: r = "spdif"; break;
-					 }
-					 r; }));
+	pr_info("i2soutmode              %s\n", i2s_out_mode_str(rv));
 	pr_info("i2sbitwidth             %u\n", rv & 0x1fu);
 	rv = hdmi_read(state, 0x05);
 	pr_info("hdmi_mode               %s\n", rv & BIT(7) ? "HDMI" : "DVI");
 	rv = hdmi_read(state, 0x07);
-	pr_info("audio_channel_mode      %s\n", rv & BIT(6) ? "multichannel" : "stereo or compressed");
+	pr_info("audio_channel_mode      %s\n",
+		rv & BIT(6) ? "multichannel" : "stereo or compressed");
 	rv = hdmi_read(state, 0x0f);
-	pr_info("man_audio_dl_bypass     0x%02lx\n", rv & BIT(7)); /* must be 1 if tdm */
-	pr_info("audio_delay_line_bypass 0x%02lx\n", rv & BIT(6)); /* must be 1 if tdm */
+	/* The bits 6 and 7 must be 1 if TDM mode */
+	pr_info("man_audio_dl_bypass     0x%02lx\n", rv & BIT(7));
+	pr_info("audio_delay_line_bypass 0x%02lx\n", rv & BIT(6));
 	rv = hdmi_read(state, 0x6e);
 	pr_info("mux_spdif_to_i2s_enable %s\n", rv & BIT(3) ? "SPDIF" : "I2S");
 	rv = dpll_read(state, ADV748X_DPLL_MCLK_FS);
-	pr_info("mclk_fs_n               %lu\n", ((rv & ADV748X_DPLL_MCLK_FS_N_MASK) + 1) * 128);
+	pr_info("mclk_fs_n               %lu\n",
+		((rv & ADV748X_DPLL_MCLK_FS_N_MASK) + 1) * 128);
 
 	/* i2s_tdm_mode_enable must be set */
 	memset(&tmds_params, 0, sizeof(tmds_params));
@@ -852,141 +877,28 @@ static int adv748x_hdmi_log_status(struct v4l2_subdev *sd)
 		pr_info("... TDM: ACR cts  %u\n", tmds_params.cts);
 		pr_info("... TDM: ACR n    %u\n", tmds_params.n);
 	}
-	if (adv748x_read_block(state, ADV748X_PAGE_HDMI, 0x51, tmdsfreq, 2) == 0) {
+	if (adv748x_read_block(state, ADV748X_PAGE_HDMI, 0x51,
+			       tmdsfreq, 2) == 0) {
 		tmds_params.tmdsfreq  = tmdsfreq[0] << 1;
 		tmds_params.tmdsfreq |= tmdsfreq[1] >> 7;
 		tmds_params.tmdsfreq_frac = tmdsfreq[1] & 0x7f;
-		pr_info("... TDM: tmdsfreq       %d MHz\n", tmds_params.tmdsfreq);
-		pr_info("... TDM: tmdsfreq_frac  %d 1/128\n", tmds_params.tmdsfreq_frac);
+		pr_info("... TDM: tmdsfreq       %d MHz\n",
+			tmds_params.tmdsfreq);
+		pr_info("... TDM: tmdsfreq_frac  %d 1/128\n",
+			tmds_params.tmdsfreq_frac);
 	}
-	if (i2s_tdm_mode_enable) {
+	if (i2s_tdm_mode_enable)
 		pr_info("... TDM: sampling frequency %u Hz\n",
 			tmds_params.cts ?
 			(tmds_params.tmdsfreq * tmds_params.n +
 			 tmds_params.tmdsfreq_frac * tmds_params.n / 128) *
 			1000 / (128 * tmds_params.cts / 1000) :
 			UINT_MAX);
-	}
 	return 0;
 }
 
-static int adv748x_hdmi_enumaudout(struct adv748x_hdmi *hdmi, struct v4l2_audioout *a)
-{
-	switch (a->index) {
-	case HDMI_AOUT_NONE:
-		strlcpy(a->name, "None", sizeof(a->name));
-		break;
-	case HDMI_AOUT_I2S:
-		strlcpy(a->name, "I2S/stereo", sizeof(a->name));
-		break;
-	case HDMI_AOUT_I2S_TDM:
-		strlcpy(a->name, "I2S-TDM/multichannel", sizeof(a->name));
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
-
-static int adv748x_hdmi_g_audout(struct adv748x_hdmi *hdmi, struct v4l2_audioout *a)
-{
-	a->index = hdmi->audio_out;
-	return adv748x_hdmi_enumaudout(hdmi, a);
-}
-
-static int set_audio_pads_state(struct adv748x_state *state, int on)
-{
-	v4l2_dbg(0, 0, &state->hdmi.sd, "set audio pads %s\n", on ? "on" : "off");
-	return io_update(state, ADV748X_IO_PAD_CONTROLS,
-			 ADV748X_IO_PAD_CONTROLS_TRI_AUD | ADV748X_IO_PAD_CONTROLS_PDN_AUD,
-			 on ? 0 : 0xff);
-}
-
-static int set_dpll_mclk_fs(struct adv748x_state *state, int fs)
-{
-	if (fs % 128 || fs > 768)
-		return -EINVAL;
-	return dpll_update(state, ADV748X_DPLL_MCLK_FS, ADV748X_DPLL_MCLK_FS_N_MASK, (fs / 128) - 1);
-}
-
-static int set_i2s_format(struct adv748x_state *state, uint outmode, uint bitwidth)
-{
-	return hdmi_update(state, ADV748X_HDMI_I2S,
-			   ADV748X_HDMI_I2SBITWIDTH_MASK | ADV748X_HDMI_I2SOUTMODE_MASK,
-			   (outmode << ADV748X_HDMI_I2SOUTMODE_SHIFT) | bitwidth);
-}
-
-static int set_i2s_tdm_mode(struct adv748x_state *state, int is_tdm)
-{
-	int ret;
-
-	ret = hdmi_update(state, ADV748X_HDMI_AUDIO_MUTE_SPEED,
-			  ADV748X_MAN_AUDIO_DL_BYPASS | ADV748X_AUDIO_DELAY_LINE_BYPASS,
-			  is_tdm ? 0xff : 0);
-	if (ret < 0)
-		goto fail;
-	ret = hdmi_update(state, ADV748X_HDMI_REG_6D, ADV748X_I2S_TDM_MODE_ENABLE,
-			  is_tdm ? 0xff : 0);
-	if (ret < 0)
-		goto fail;
-	ret = set_i2s_format(state, ADV748X_I2SOUTMODE_LEFT_J, 24);
-fail:
-	return ret;
-}
-
-static int set_audio_out(struct adv748x_state *state, int aout)
-{
-	int ret;
-
-	switch (aout) {
-	case HDMI_AOUT_NONE:
-		v4l2_dbg(0, 0, &state->hdmi.sd, "selecting no audio\n");
-		ret = set_audio_pads_state(state, 0);
-		break;
-	case HDMI_AOUT_I2S:
-		v4l2_dbg(0, 0, &state->hdmi.sd, "selecting I2S audio\n");
-		ret = set_dpll_mclk_fs(state, 256);
-		if (ret < 0)
-			goto fail;
-		ret = set_i2s_tdm_mode(state, 1);
-		if (ret < 0)
-			goto fail;
-		ret = set_audio_pads_state(state, 1);
-		if (ret < 0)
-			goto fail;
-		break;
-	case HDMI_AOUT_I2S_TDM:
-		v4l2_dbg(0, 0, &state->hdmi.sd, "selecting I2S/TDM audio\n");
-		ret = set_dpll_mclk_fs(state, 256);
-		if (ret < 0)
-			goto fail;
-		ret = set_i2s_tdm_mode(state, 1);
-		if (ret < 0)
-			goto fail;
-		ret = set_audio_pads_state(state, 1);
-		if (ret < 0)
-			goto fail;
-		break;
-	default:
-		ret = -EINVAL;
-		goto fail;
-	}
-	return 0;
-fail:
-	return ret;
-}
-
-static int adv748x_hdmi_s_audout(struct adv748x_hdmi *hdmi, const struct v4l2_audioout *a)
-{
-	struct adv748x_state *state = adv748x_hdmi_to_state(hdmi);
-	int ret = set_audio_out(state, a->index);
-
-	if (ret == 0)
-		hdmi->audio_out = a->index;
-	return ret;
-}
-
-static long adv748x_hdmi_querycap(struct adv748x_hdmi *hdmi, struct v4l2_capability *cap)
+static long adv748x_hdmi_querycap(struct adv748x_hdmi *hdmi,
+				  struct v4l2_capability *cap)
 {
 	struct adv748x_state *state = adv748x_hdmi_to_state(hdmi);
 
@@ -1001,26 +913,19 @@ static long adv748x_hdmi_querycap(struct adv748x_hdmi *hdmi, struct v4l2_capabil
 	return 0;
 }
 
-static long adv748x_hdmi_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+static long adv748x_hdmi_ioctl(struct v4l2_subdev *sd,
+			       unsigned int cmd, void *arg)
 {
 	struct adv748x_hdmi *hdmi = adv748x_sd_to_hdmi(sd);
 
-	switch (cmd) {
-	case VIDIOC_ENUMAUDOUT:
-		return adv748x_hdmi_enumaudout(hdmi, arg);
-	case VIDIOC_S_AUDOUT:
-		return adv748x_hdmi_s_audout(hdmi, arg);
-	case VIDIOC_G_AUDOUT:
-		return adv748x_hdmi_g_audout(hdmi, arg);
-	case VIDIOC_QUERYCAP:
+	if (cmd == VIDIOC_QUERYCAP)
 		return adv748x_hdmi_querycap(hdmi, arg);
-	}
 	return -ENOTTY;
 }
 
 static const struct v4l2_subdev_core_ops adv748x_core_ops_hdmi = {
-	.log_status = adv748x_hdmi_log_status,
 	.ioctl = adv748x_hdmi_ioctl,
+	.log_status = adv748x_hdmi_log_status,
 };
 
 /* -----------------------------------------------------------------------------
@@ -1054,8 +959,6 @@ static int adv748x_hdmi_s_ctrl(struct v4l2_ctrl *ctrl)
 	int ret;
 	u8 pattern;
 
-	if (ctrl->id == V4L2_CID_AUDIO_MUTE)
-		return adv748x_hdmi_audio_mute(hdmi, ctrl->val);
 	/* Enable video adjustment first */
 	ret = cp_clrset(state, ADV748X_CP_VID_ADJ,
 			ADV748X_CP_VID_ADJ_ENABLE,
@@ -1120,8 +1023,6 @@ static int adv748x_hdmi_init_controls(struct adv748x_hdmi *hdmi)
 	v4l2_ctrl_new_std(&hdmi->ctrl_hdl, &adv748x_hdmi_ctrl_ops,
 			  V4L2_CID_HUE, ADV748X_CP_HUE_MIN,
 			  ADV748X_CP_HUE_MAX, 1, ADV748X_CP_HUE_DEF);
-	v4l2_ctrl_new_std(&hdmi->ctrl_hdl, &adv748x_hdmi_ctrl_ops,
-			  V4L2_CID_AUDIO_MUTE, 0, 1, 1, 1);
 
 	/*
 	 * Todo: V4L2_CID_DV_RX_POWER_PRESENT should also be supported when
@@ -1181,23 +1082,10 @@ int adv748x_hdmi_init(struct adv748x_hdmi *hdmi)
 		v4l2_err(&hdmi->sd, "edid set error %d\n", err);
 		return err;
 	}
-
-	hdmi->audio_out = default_audio_out;
-	if (hdmi->audio_out != HDMI_AOUT_NONE) {
-		err = set_audio_out(state, default_audio_out);
-		if (err)
-			v4l2_err(&hdmi->sd, "selecting audio output error %d\n", err);
-		else {
-			struct v4l2_ctrl *mute;
-
-			mute = v4l2_ctrl_find(&hdmi->ctrl_hdl, V4L2_CID_AUDIO_MUTE);
-			if (mute) {
-				err = v4l2_ctrl_s_ctrl(mute, 0);
-				if (err)
-					v4l2_err(&hdmi->sd, "demuting audio error %d\n", err);
-			}
-		}
-	}
+	if (default_audio_out != 0)
+		adv_err(state,
+			"module parameter 'aout' is not supported anymore. "
+			"Use ALSA interface to access HDMI audio\n");
 	return 0;
 
 err_free_media:
@@ -1208,8 +1096,6 @@ err_free_media:
 
 void adv748x_hdmi_cleanup(struct adv748x_hdmi *hdmi)
 {
-	adv748x_hdmi_audio_mute(hdmi, 1);
-	set_audio_out(adv748x_hdmi_to_state(hdmi), HDMI_AOUT_NONE);
 	v4l2_device_unregister_subdev(&hdmi->sd);
 	media_entity_cleanup(&hdmi->sd.entity);
 	v4l2_ctrl_handler_free(&hdmi->ctrl_hdl);
