@@ -41,6 +41,7 @@ struct rsnd_adg {
 
 	int rbga_rate_for_441khz; /* RBGA */
 	int rbgb_rate_for_48khz;  /* RBGB */
+	enum rsnd_ssi_clksrc rbga_clksrc, rbgb_clksrc;
 };
 
 #define LRCLK_ASYNC	(1 << 0)
@@ -57,6 +58,21 @@ struct rsnd_adg {
 	     ((pos) = adg->clkout[i]);	\
 	     i++)
 #define rsnd_priv_to_adg(priv) ((struct rsnd_adg *)(priv)->adg)
+
+static enum rsnd_ssi_clksrc rsnd_clk_to_clksrc(int clk) {
+	switch(clk) {
+	case CLKA:
+		return clksrc_audio_clka;
+	case CLKB:
+		return clksrc_audio_clkb;
+	case CLKC:
+		return clksrc_audio_clkc;
+	case CLKI:
+		return clksrc_audio_clki;
+	default:
+		return 0;
+	}
+}
 
 static const char * const clk_name[] = {
 	[CLKA]	= "clk_a",
@@ -318,7 +334,8 @@ static void rsnd_adg_set_ssi_clk(struct rsnd_mod *ssi_mod, u32 val)
 	dev_dbg(dev, "AUDIO_CLK_SEL is 0x%x\n", val);
 }
 
-int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
+int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate,
+		       enum rsnd_ssi_clksrc clksrc)
 {
 	struct rsnd_adg *adg = rsnd_priv_to_adg(priv);
 	struct clk *clk;
@@ -335,6 +352,8 @@ int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
 	 * AUDIO_CLKA/AUDIO_CLKB/AUDIO_CLKC/AUDIO_CLKI.
 	 */
 	for_each_rsnd_clk(clk, adg, i) {
+		if (clksrc != clksrc_auto && rsnd_clk_to_clksrc(i) != clksrc)
+			continue;
 		if (rate == adg->clk_rate[i])
 			return sel_table[i];
 	}
@@ -342,10 +361,12 @@ int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
 	/*
 	 * find divided clock from BRGA/BRGB
 	 */
-	if (rate == adg->rbga_rate_for_441khz)
+	if (rate == adg->rbga_rate_for_441khz &&
+	    (clksrc == clksrc_auto || clksrc == adg->rbga_clksrc))
 		return 0x10;
 
-	if (rate == adg->rbgb_rate_for_48khz)
+	if (rate == adg->rbgb_rate_for_48khz &&
+	    (clksrc == clksrc_auto || clksrc == adg->rbgb_clksrc))
 		return 0x20;
 
 	return -EIO;
@@ -358,7 +379,8 @@ int rsnd_adg_ssi_clk_stop(struct rsnd_mod *ssi_mod)
 	return 0;
 }
 
-int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate)
+int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate,
+			       enum rsnd_ssi_clksrc clksrc)
 {
 	struct rsnd_priv *priv = rsnd_mod_to_priv(ssi_mod);
 	struct rsnd_adg *adg = rsnd_priv_to_adg(priv);
@@ -367,7 +389,7 @@ int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate)
 	int data;
 	u32 ckr = 0;
 
-	data = rsnd_adg_clk_query(priv, rate);
+	data = rsnd_adg_clk_query(priv, rate, clksrc);
 	if (data < 0)
 		return data;
 
@@ -523,6 +545,7 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 				rbga = rbgx;
 				adg->rbga_rate_for_441khz = rate / div;
 				ckr |= brg_table[i] << 20;
+				adg->rbga_clksrc = rsnd_clk_to_clksrc(i);
 				if (req_441kHz_rate &&
 				    !rsnd_flags_has(adg, AUDIO_OUT_48))
 					parent_clk_name = __clk_get_name(clk);
@@ -539,6 +562,7 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 				rbgb = rbgx;
 				adg->rbgb_rate_for_48khz = rate / div;
 				ckr |= brg_table[i] << 16;
+				adg->rbgb_clksrc = rsnd_clk_to_clksrc(i);
 				if (req_48kHz_rate &&
 				    rsnd_flags_has(adg, AUDIO_OUT_48))
 					parent_clk_name = __clk_get_name(clk);
