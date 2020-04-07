@@ -442,7 +442,7 @@ void rsnd_adg_clk_control(struct rsnd_priv *priv, int enable)
 	}
 }
 
-static void rsnd_adg_get_clkin(struct rsnd_priv *priv,
+static int rsnd_adg_get_clkin(struct rsnd_priv *priv,
 			       struct rsnd_adg *adg)
 {
 	struct device *dev = rsnd_priv_to_dev(priv);
@@ -452,7 +452,15 @@ static void rsnd_adg_get_clkin(struct rsnd_priv *priv,
 	for (i = 0; i < CLKMAX; i++) {
 		clk = devm_clk_get(dev, clk_name[i]);
 		adg->clk[i] = IS_ERR(clk) ? NULL : clk;
+		if (IS_ERR(clk)) {
+			dev_warn(dev, "can't get clk[%d] %s: %ld\n", i,
+				 clk_name[i], PTR_ERR(clk));
+			if (PTR_ERR(clk) == -EPROBE_DEFER)
+				return PTR_ERR(clk);
+		}
 	}
+
+	return 0;
 }
 
 static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
@@ -755,7 +763,9 @@ int rsnd_adg_probe(struct rsnd_priv *priv)
 	if (ret)
 		return ret;
 
-	rsnd_adg_get_clkin(priv, adg);
+	ret = rsnd_adg_get_clkin(priv, adg);
+	if (ret)
+		return ret;
 	rsnd_adg_get_clkout(priv, adg);
 	rsnd_adg_clk_dbg_info(priv, adg);
 	ret = rsnd_adg_avb_sync(priv, adg);
