@@ -42,6 +42,7 @@ struct rsnd_adg {
 	int rbga_rate_for_441khz; /* RBGA */
 	int rbgb_rate_for_48khz;  /* RBGB */
 	enum rsnd_ssi_clksrc rbga_clksrc, rbgb_clksrc;
+	bool explicit_clocks[CLKMAX];
 };
 
 #define LRCLK_ASYNC	(1 << 0)
@@ -354,6 +355,8 @@ int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate,
 	for_each_rsnd_clk(clk, adg, i) {
 		if (clksrc != clksrc_auto && rsnd_clk_to_clksrc(i) != clksrc)
 			continue;
+		if (clksrc == clksrc_auto && adg->explicit_clocks[i])
+			continue;
 		if (rate == adg->clk_rate[i])
 			return sel_table[i];
 	}
@@ -458,6 +461,10 @@ static int rsnd_adg_get_clkin(struct rsnd_priv *priv,
 			if (PTR_ERR(clk) == -EPROBE_DEFER)
 				return PTR_ERR(clk);
 		}
+		if (of_property_match_string(dev->of_node,
+					     "rcar_sound,explicit-only-clocks",
+					     clk_name[i]) >= 0)
+			adg->explicit_clocks[i] = true;
 	}
 
 	return 0;
@@ -541,6 +548,8 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 		rate = clk_get_rate(clk);
 
 		if (0 == rate) /* not used */
+			continue;
+		if (adg->explicit_clocks[i])
 			continue;
 
 		/* RBGA */

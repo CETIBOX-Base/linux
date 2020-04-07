@@ -808,6 +808,9 @@
 		      "ctu.1", "ctu.0",
 		      "dvc.0", "dvc.1",
 		      "clk_a", "clk_b", "clk_c", "clk_i";
+	/* Never use clk_c (from the HDMI in) as the source of an audio master clock
+	   generated in the ADG automatically. */
+	rcar_sound,explicit-only-clocks = "clk_c";
 
 	rcar_sound,avb-adg-sync = "ssi.0", "ssi.9", "avb_div8.0", "audio_clk_div.1";
 	rcar_sound,audio-clk-div = <0 512 0>;
