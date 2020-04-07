@@ -527,6 +527,13 @@ phys_addr_t rsnd_gen_get_phy_addr(struct rsnd_priv *priv, int reg_id);
 /*
  *	R-Car ADG
  */
+enum rsnd_ssi_clksrc {
+	clksrc_auto       = 0,
+	clksrc_audio_clka = 1,
+	clksrc_audio_clkb = 2,
+	clksrc_audio_clkc = 3,
+	clksrc_audio_clki = 4,
+};
 int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate);
 int rsnd_adg_ssi_clk_stop(struct rsnd_mod *mod);
 int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *mod, unsigned int rate);
