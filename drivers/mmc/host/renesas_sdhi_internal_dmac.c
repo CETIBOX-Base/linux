@@ -82,7 +82,8 @@ static struct renesas_sdhi_scc rcar_gen3_scc_taps[] = {
 	{
 		.clk_rate = 0,
 		.tap = 0x00000300,
-		.tap_hs400 = 0x00000704,
+		.tap_hs400 = 0x00000300,
+		.tap_hs400_4tap = 0x00000100,
 	},
 };
 
@@ -93,6 +94,7 @@ static const struct renesas_sdhi_of_data of_rcar_gen3_compatible = {
 			  MMC_CAP_CMD23,
 	.capabilities2	= MMC_CAP2_NO_WRITE_PROTECT,
 	.bus_shift	= 2,
+	.mmc0_addr	= 0xee140000,
 	.scc_offset	= 0x1000,
 	/* SCC module clock (SDnH) is enabled at 100MHz or more */
 	.scc_base_f_min = 100000000,
@@ -289,7 +291,7 @@ renesas_sdhi_internal_dmac_request_dma(struct tmio_mmc_host *host,
 	/* Each value is set to non-zero to assume "enabling" each DMA */
 	host->chan_rx = host->chan_tx = (void *)0xdeadbeaf;
 
-	host->dma_tranend1 = (host->sdhi_quirks & DTRAEND1_SET_BIT17) ?
+	host->dma_tranend1 = (priv->dtranend1_bit17) ?
 		INFO1_DTRANEND1_BIT17 : INFO1_DTRANEND1_BIT20;
 
 	tasklet_init(&priv->dma_priv.dma_complete,

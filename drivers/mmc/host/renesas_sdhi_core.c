@@ -239,6 +239,12 @@ static int renesas_sdhi_start_signal_voltage_switch(struct mmc_host *mmc,
 #define SH_MOBILE_SDHI_SCC_RVSCNTL_RVSEN	BIT(0)
 /* Definitions for values the SH_MOBILE_SDHI_SCC_RVSREQ register */
 #define SH_MOBILE_SDHI_SCC_RVSREQ_RVSERR	BIT(2)
+#define SH_MOBILE_SDHI_SCC_RVSREQ_REQTAPUP	BIT(1)
+#define SH_MOBILE_SDHI_SCC_RVSREQ_REQTAPDOWN	BIT(0)
+/* Definitions for values the SH_MOBILE_SDHI_SCC_SMPCMP register */
+#define SH_MOBILE_SDHI_SCC_SMPCMP_CMD_ERR	(BIT(24) | BIT(8))
+#define SH_MOBILE_SDHI_SCC_SMPCMP_CMD_REQUP	BIT(24)
+#define SH_MOBILE_SDHI_SCC_SMPCMP_CMD_REQDOWN	BIT(8)
 /* Definitions for values the SH_MOBILE_SDHI_SCC_TMPPORT2 register */
 #define SH_MOBILE_SDHI_SCC_TMPPORT2_HS400OSEL	BIT(4)
 #define SH_MOBILE_SDHI_SCC_TMPPORT2_HS400EN	BIT(31)
@@ -262,30 +268,105 @@ static int renesas_sdhi_start_signal_voltage_switch(struct mmc_host *mmc,
 #define SH_MOBILE_SDHI_SCC_TMPPORT_DISABLE_WP_CODE	0xa5000000
 #define SH_MOBILE_SDHI_SCC_TMPPORT_CALIB_CODE_MASK	0x1f
 #define SH_MOBILE_SDHI_SCC_TMPPORT_MANUAL_MODE		BIT(7)
+#define CALIB_TABLE_MAX	(SH_MOBILE_SDHI_SCC_TMPPORT_CALIB_CODE_MASK + 1)
+
+static const u32 r8a7796_rev1_calib_table[2][CALIB_TABLE_MAX] = {
+	{ 3,  3,  3,  3,  3,  3,  3,  4,  4,  5,  6,  7,  8,  9, 10, 15,
+	 16, 16, 16, 16, 16, 16, 17, 18, 18, 19, 20, 21, 22, 23, 24, 25 },
+	{ 5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  6,  7,  8, 11,
+	 12, 17, 18, 18, 18, 18, 18, 18, 18, 19, 20, 21, 22, 23, 25, 25 }
+};
+
+static const u32 r8a77965_calib_table[2][CALIB_TABLE_MAX] = {
+	{ 1,  2,  6,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 15, 15, 16,
+	 17, 18, 19, 20, 21, 22, 23, 24, 25, 25, 26, 27, 28, 29, 30, 31 },
+	{ 2,  3,  4,  4,  5,  6,  7,  9, 10, 11, 12, 13, 14, 15, 16, 17,
+	 17, 17, 20, 21, 22, 23, 24, 25, 27, 28, 29, 30, 31, 31, 31, 31 }
+};
+
+static const u32 r8a77990_calib_table[2][CALIB_TABLE_MAX] = {
+	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0 },
+	{ 0,  0,  0,  1,  2,  3,  3,  4,  4,  4,  5,  5,  6,  8,  9, 10,
+	 11, 12, 13, 15, 16, 17, 17, 18, 18, 19, 20, 22, 24, 25, 26, 26 }
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_4tap_nohs400_bit17 = {
+	.hs400_disabled = true,
+	.hs400_4taps = true,
+	.dtranend1_bit17 = true,
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_4tap_nohs400 = {
+	.hs400_disabled = true,
+	.hs400_4taps = true,
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_4tap = {
+	.hs400_4taps = true,
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_bad_tap = BIT(2) | BIT(3) | BIT(6) | BIT(7),
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_r8a7795 = {
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_bad_tap = BIT(2) | BIT(3) | BIT(6) | BIT(7),
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_r8a7796_rev1 = {
+	.hs400_4taps = true,
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_bad_tap = BIT(2) | BIT(3) | BIT(6) | BIT(7),
+	.hs400_manual_calib = true,
+	.hs400_offset = SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0,
+	.hs400_calib_table = r8a7796_rev1_calib_table[0],
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_r8a7796_rev3 = {
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_bad_tap = BIT(1) | BIT(3) | BIT(5) | BIT(7),
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_r8a77965 = {
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_bad_tap = BIT(2) | BIT(3) | BIT(6) | BIT(7),
+	.hs400_manual_calib = true,
+	.hs400_offset = SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0,
+	.hs400_calib_table = r8a77965_calib_table[0],
+};
+
+static const struct renesas_sdhi_quirks sdhi_quirks_r8a77990 = {
+	.hs400_manual_correction = true,
+	.hs400_ignore_dat_correction = true,
+	.hs400_manual_calib = true,
+	.hs400_offset = SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0,
+	.hs400_calib_table = r8a77990_calib_table[0],
+};
 
 static const struct soc_device_attribute sdhi_quirks_match[]  = {
 	{ .soc_id = "r8a7795", .revision = "ES1.*",
-	  .data = (void *)(DTRAEND1_SET_BIT17 | HS400_USE_4TAP |
-			   FORCE_HS200), },
+	  .data = &sdhi_quirks_4tap_nohs400_bit17, },
 	{ .soc_id = "r8a7795", .revision = "ES2.0",
-	  .data = (void *)HS400_USE_4TAP, },
+	  .data = &sdhi_quirks_4tap, },
+	{ .soc_id = "r8a7795",
+	  .data = &sdhi_quirks_r8a7795, },
 	{ .soc_id = "r8a7796", .revision = "ES1.0",
-	  .data = (void *)(DTRAEND1_SET_BIT17 | HS400_USE_4TAP |
-			   FORCE_HS200), },
+	  .data = &sdhi_quirks_4tap_nohs400_bit17, },
 	{ .soc_id = "r8a7796", .revision = "ES1.1",
-	  .data = (void *)(HS400_USE_4TAP | FORCE_HS200), },
+	  .data = &sdhi_quirks_4tap_nohs400, },
 	{ .soc_id = "r8a7796", .revision = "ES1.*",
-	  .data = (void *)(HS400_USE_4TAP | HS400_USE_MANUAL_CALIB |
-			   (SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0 << 24) |
-			   (0x9 << 16)), },
+	  .data = &sdhi_quirks_r8a7796_rev1, },
+	{ .soc_id = "r8a7796",
+	  .data = &sdhi_quirks_r8a7796_rev3, },
 	{ .soc_id = "r8a77965",
-	  .data = (void *)(HS400_USE_MANUAL_CALIB |
-			   (SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0 << 24) |
-			   (0x0 << 16)), },
+	  .data = &sdhi_quirks_r8a77965, },
 	{ .soc_id = "r8a77990",
-	  .data = (void *)(HS400_USE_MANUAL_CALIB |
-			   (SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0 << 24) |
-			   (0x4 << 16)), },
+	  .data = &sdhi_quirks_r8a77990, },
 	{/*sentinel*/},
 };
 
@@ -343,6 +424,8 @@ static void renesas_sdhi_prepare_tuning(struct tmio_mmc_host *host,
 {
 	struct renesas_sdhi *priv = host_to_priv(host);
 
+	priv->doing_tune = true;
+
 	/* Set sampling clock position */
 	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TAPSET, tap);
 }
@@ -387,6 +470,7 @@ static void renesas_sdhi_prepare_hs400_tuning(struct mmc_host *mmc,
 {
 	struct tmio_mmc_host *host = mmc_priv(mmc);
 	struct renesas_sdhi *priv = host_to_priv(host);
+	unsigned long new_tap;
 
 	sd_ctrl_write16(host, CTL_SD_CARD_CLK_CTL, ~CLK_CTL_SCLKEN &
 		sd_ctrl_read16(host, CTL_SD_CARD_CLK_CTL));
@@ -398,6 +482,12 @@ static void renesas_sdhi_prepare_hs400_tuning(struct mmc_host *mmc,
 	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_DT2FF,
 		       priv->scc_tappos_hs400);
 
+	if (priv->hs400_manual_correction)
+		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_RVSCNTL,
+			       ~SH_MOBILE_SDHI_SCC_RVSCNTL_RVSEN &
+			       sd_scc_read32(host, priv,
+					     SH_MOBILE_SDHI_SCC_RVSCNTL));
+
 	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TMPPORT2,
 		       (SH_MOBILE_SDHI_SCC_TMPPORT2_HS400EN |
 			SH_MOBILE_SDHI_SCC_TMPPORT2_HS400OSEL) |
@@ -408,6 +498,25 @@ static void renesas_sdhi_prepare_hs400_tuning(struct mmc_host *mmc,
 		       SH_MOBILE_SDHI_SCC_DTCNTL_TAPEN |
 		       sd_scc_read32(host, priv,
 				     SH_MOBILE_SDHI_SCC_DTCNTL));
+
+	/* Avoid bad TAP */
+	if (priv->hs400_bad_tap & (1 << host->tap_set)) {
+		new_tap = (host->tap_set +
+			   host->tap_num + 1) % host->tap_num;
+
+		if (priv->hs400_bad_tap & (1 << new_tap))
+			new_tap = (host->tap_set +
+				   host->tap_num - 1) % host->tap_num;
+
+		if (priv->hs400_bad_tap & (1 << new_tap)) {
+			new_tap = host->tap_set;
+			pr_debug("Three consecutive bad tap is prohibited\n");
+		}
+
+		host->tap_set = new_tap;
+		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TAPSET,
+			       host->tap_set);
+	}
 
 	/* Replace the tuning result of 8TAP with 4TAP */
 	if (host->hs400_use_4tap)
@@ -463,27 +572,28 @@ static void renesas_sdhi_adjust_hs400_mode_enable(struct mmc_host *mmc)
 	struct renesas_sdhi *priv = host_to_priv(host);
 	u32 calib_code;
 
+	if (!priv->adjust_hs400_calib_table)
+		return;
+
 	/* Enabled Manual adjust HS400 mode
 	 *
 	 * 1) Disabled Write Protect
 	 *    W(addr=0x00, WP_DISABLE_CODE)
-	 * 2) Read Calibration code and adjust
-	 *    R(addr=0x26) - adjust value
-	 * 3) Enabled Manual Calibration
+	 * 2) Read Calibration code
+	 *    read_value = R(addr=0x26)
+	 * 3) Refer to calibration table
+	 *    Calibration code = table[read_value]
+	 * 4) Enabled Manual Calibration
 	 *    W(addr=0x22, manual mode | Calibration code)
-	 * 4) Set Offset value to TMPPORT3 Reg
+	 * 5) Set Offset value to TMPPORT3 Reg
 	 */
 	sd_scc_tmpport_write32(host, priv, 0x00,
 			       SH_MOBILE_SDHI_SCC_TMPPORT_DISABLE_WP_CODE);
 	calib_code = sd_scc_tmpport_read32(host, priv, 0x26);
 	calib_code &= SH_MOBILE_SDHI_SCC_TMPPORT_CALIB_CODE_MASK;
-	if (calib_code > priv->adjust_hs400_calibrate)
-		calib_code -= priv->adjust_hs400_calibrate;
-	else
-		calib_code = 0;
 	sd_scc_tmpport_write32(host, priv, 0x22,
 			       SH_MOBILE_SDHI_SCC_TMPPORT_MANUAL_MODE |
-			       calib_code);
+			       priv->adjust_hs400_calib_table[calib_code]);
 	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TMPPORT3,
 		       priv->adjust_hs400_offset);
 
@@ -549,6 +659,7 @@ static int renesas_sdhi_select_tuning(struct tmio_mmc_host *host)
 
 	/* clear flag */
 	host->needs_adjust_hs400 = false;
+	priv->doing_tune = false;
 
 	/* Clear SCC_RVSREQ */
 	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ, 0);
@@ -643,6 +754,105 @@ static int renesas_sdhi_select_tuning(struct tmio_mmc_host *host)
 	return 0;
 }
 
+static bool renesas_sdhi_manual_correction(struct tmio_mmc_host *host)
+{
+	struct renesas_sdhi *priv = host_to_priv(host);
+	u32 val;
+	u32 smpcmp;
+	unsigned long new_tap = host->tap_set;
+	unsigned long error_tap = host->tap_set;
+
+	val = sd_scc_read32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ);
+
+	/* No error */
+	if (!val)
+		return false;
+
+	sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ, 0);
+
+	/* Change TAP position according to correction status */
+	if (priv->hs400_ignore_dat_correction &&
+	    host->mmc->ios.timing == MMC_TIMING_MMC_HS400) {
+		/*
+		 * Correction Error Status contains CMD and DAT signal status.
+		 * In HS400, DAT signal based on DS signal, not CLK.
+		 * Therefore, use only CMD status.
+		 */
+		smpcmp = sd_scc_read32(host, priv, SH_MOBILE_SDHI_SCC_SMPCMP) &
+			 SH_MOBILE_SDHI_SCC_SMPCMP_CMD_ERR;
+
+		switch (smpcmp) {
+		case 0:
+			return false;	/* No error in CMD signal */
+		case SH_MOBILE_SDHI_SCC_SMPCMP_CMD_REQUP:
+			new_tap = (host->tap_set +
+				   host->tap_num + 1) % host->tap_num;
+			error_tap = (host->tap_set +
+				     host->tap_num - 1) % host->tap_num;
+			break;
+		case SH_MOBILE_SDHI_SCC_SMPCMP_CMD_REQDOWN:
+			new_tap = (host->tap_set +
+				   host->tap_num - 1) % host->tap_num;
+			error_tap = (host->tap_set +
+				     host->tap_num + 1) % host->tap_num;
+			break;
+		default:
+			return true;	/* Need re-tune */
+		}
+
+		if (priv->hs400_bad_tap & (1 << new_tap)) {
+			/*
+			 * New tap is bad tap (cannot change).
+			 * Compare with HS200 tuning result.
+			 * In HS200 tuning, when smpcmp[error_tap]
+			 * is OK, retune is executed.
+			 */
+			if (test_bit(error_tap, host->smpcmp))
+				return true;	/* Need retune */
+
+			return false;	/* cannot change */
+		}
+
+		host->tap_set = new_tap;
+	} else {
+		if (val & SH_MOBILE_SDHI_SCC_RVSREQ_RVSERR)
+			return true;	/* Need re-tune */
+		else if (val & SH_MOBILE_SDHI_SCC_RVSREQ_REQTAPUP)
+			host->tap_set = (host->tap_set +
+					 host->tap_num + 1) % host->tap_num;
+		else if (val & SH_MOBILE_SDHI_SCC_RVSREQ_REQTAPDOWN)
+			host->tap_set = (host->tap_set +
+					 host->tap_num - 1) % host->tap_num;
+		else
+			return false;
+	}
+
+	/* Set TAP position */
+	if (host->hs400_use_4tap)
+		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TAPSET,
+			       host->tap_set / 2);
+	else
+		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_TAPSET,
+			       host->tap_set);
+
+	return false;
+}
+
+static bool renesas_sdhi_auto_correction(struct tmio_mmc_host *host)
+{
+	struct renesas_sdhi *priv = host_to_priv(host);
+
+	/* Check SCC error */
+	if (sd_scc_read32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ) &
+	    SH_MOBILE_SDHI_SCC_RVSREQ_RVSERR) {
+		/* Clear SCC error */
+		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ, 0);
+		return true;
+	}
+
+	return false;
+}
+
 static bool renesas_sdhi_check_scc_error(struct tmio_mmc_host *host)
 {
 	struct renesas_sdhi *priv = host_to_priv(host);
@@ -653,20 +863,14 @@ static bool renesas_sdhi_check_scc_error(struct tmio_mmc_host *host)
 	      !host->hs400_use_4tap))
 		return false;
 
-	if (host->mmc->doing_retune == 1)
+	if (host->mmc->doing_retune == 1 || priv->doing_tune)
 		return false;
 
-	/* Check SCC error */
 	if (sd_scc_read32(host, priv, SH_MOBILE_SDHI_SCC_RVSCNTL) &
-	    SH_MOBILE_SDHI_SCC_RVSCNTL_RVSEN &&
-	    sd_scc_read32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ) &
-	    SH_MOBILE_SDHI_SCC_RVSREQ_RVSERR) {
-		/* Clear SCC error */
-		sd_scc_write32(host, priv, SH_MOBILE_SDHI_SCC_RVSREQ, 0);
-		return true;
-	}
+	    SH_MOBILE_SDHI_SCC_RVSCNTL_RVSEN)
+		return renesas_sdhi_auto_correction(host);
 
-	return false;
+	return renesas_sdhi_manual_correction(host);
 }
 
 static void renesas_sdhi_hw_reset(struct tmio_mmc_host *host)
@@ -780,6 +984,7 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 		       const struct tmio_mmc_dma_ops *dma_ops)
 {
 	struct tmio_mmc_data *mmd = pdev->dev.platform_data;
+	const struct renesas_sdhi_quirks *quirks = NULL;
 	const struct renesas_sdhi_of_data *of_data;
 	struct tmio_mmc_data *mmc_data;
 	struct tmio_mmc_dma *dma_priv;
@@ -788,8 +993,7 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 	struct resource *res;
 	const struct soc_device_attribute *attr;
 	int irq, ret, i;
-	const struct device_node *np = pdev->dev.of_node;
-	u32 value;
+	int port_num_offset = 0;
 
 	of_data = of_device_get_match_data(&pdev->dev);
 
@@ -841,10 +1045,19 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 
 	attr = soc_device_match(sdhi_quirks_match);
 	if (attr)
-		host->sdhi_quirks = (uintptr_t)attr->data;
+		quirks = attr->data;
 
-	host->hs400_use_4tap = (host->sdhi_quirks & HS400_USE_4TAP) ?
-				true : false;
+	host->hs400_use_4tap =
+		(quirks && quirks->hs400_4taps) ? true : false;
+	priv->dtranend1_bit17 =
+		(quirks && quirks->dtranend1_bit17) ? true : false;
+	priv->hs400_manual_correction =
+		(quirks && quirks->hs400_manual_correction) ? true : false;
+	priv->hs400_ignore_dat_correction =
+		(quirks && quirks->hs400_ignore_dat_correction) ? true : false;
+
+	if (quirks && quirks->hs400_bad_tap)
+		priv->hs400_bad_tap = quirks->hs400_bad_tap;
 
 	if (of_data) {
 		mmc_data->flags |= of_data->tmio_flags;
@@ -863,6 +1076,8 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 		host->bus_shift = of_data->bus_shift;
 		priv->scc_offset = of_data->scc_offset;
 		priv->scc_base_f_min = of_data->scc_base_f_min;
+		if (res->start != of_data->mmc0_addr)
+			port_num_offset = CALIB_TABLE_MAX;
 	}
 
 	host->write16_hook	= renesas_sdhi_write16_hook;
@@ -891,49 +1106,18 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 
 	/* Adjust HS400 mode */
 	priv->adjust_hs400_offset = 0;
-	priv->adjust_hs400_calibrate = 0;
+	priv->adjust_hs400_calib_table = NULL;
 
-	if (np && !of_property_read_u32(np, "adjust_hs400_offset", &value)) {
-		/* DeviceTree can invalidate SoC attribute for HS400 */
-		switch (value) {
-		case 0:
-			priv->adjust_hs400_offset =
-				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_0;
-			break;
-		case 1:
-			priv->adjust_hs400_offset =
-				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_1;
-			break;
-		case 2:
-			priv->adjust_hs400_offset =
-				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_2;
-			break;
-		case 3:
-			priv->adjust_hs400_offset =
-				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_3;
-			break;
-		default:
-			priv->adjust_hs400_offset =
-				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_3;
-			dev_warn(&host->pdev->dev, "Unknown adjust hs400 offset\n");
-		}
-		if (!of_property_read_u32(np, "adjust_hs400_calibrate", &value))
-			priv->adjust_hs400_calibrate = value;
-		host->adjust_hs400_mode_enable =
-			renesas_sdhi_adjust_hs400_mode_enable;
-		host->adjust_hs400_mode_disable =
-			renesas_sdhi_adjust_hs400_mode_disable;
-	} else if (host->mmc->caps2 & MMC_CAP2_HS400) {
-		if (host->sdhi_quirks & FORCE_HS200) {
+	if (host->mmc->caps2 & MMC_CAP2_HS400) {
+		if (quirks && quirks->hs400_disabled) {
 			host->mmc->caps2 &=
 				~(MMC_CAP2_HS400 | MMC_CAP2_HS400_ES);
-		} else if (host->sdhi_quirks & HS400_USE_MANUAL_CALIB) {
+		} else if (quirks && quirks->hs400_manual_calib) {
 			priv->adjust_hs400_offset =
-				(host->sdhi_quirks >> 24) &
+				quirks->hs400_offset &
 				SH_MOBILE_SDHI_SCC_TMPPORT3_OFFSET_MASK;
-			priv->adjust_hs400_calibrate =
-				(host->sdhi_quirks >> 16) &
-				SH_MOBILE_SDHI_SCC_TMPPORT_CALIB_CODE_MASK;
+			priv->adjust_hs400_calib_table =
+				quirks->hs400_calib_table + port_num_offset;
 			host->adjust_hs400_mode_enable =
 				renesas_sdhi_adjust_hs400_mode_enable;
 			host->adjust_hs400_mode_disable =
@@ -995,7 +1179,8 @@ int renesas_sdhi_probe(struct platform_device *pdev,
 			if (taps[i].clk_rate == 0 ||
 			    taps[i].clk_rate == host->mmc->f_max) {
 				priv->scc_tappos = taps->tap;
-				priv->scc_tappos_hs400 = taps->tap_hs400;
+				priv->scc_tappos_hs400 = host->hs400_use_4tap ?
+					taps->tap_hs400_4tap : taps->tap_hs400;
 				hit = true;
 				break;
 			}

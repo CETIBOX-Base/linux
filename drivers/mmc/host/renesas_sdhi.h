@@ -19,6 +19,7 @@ struct renesas_sdhi_scc {
 	unsigned long clk_rate;	/* clock rate for SDR104 */
 	u32 tap;		/* sampling clock position for SDR104 */
 	u32 tap_hs400;		/* sampling clock position for HS400 */
+	u32 tap_hs400_4tap;	/* sampling clock position for HS400 (4TAP) */
 };
 
 struct renesas_sdhi_of_data {
@@ -29,6 +30,7 @@ struct renesas_sdhi_of_data {
 	enum dma_slave_buswidth dma_buswidth;
 	dma_addr_t dma_rx_offset;
 	unsigned int bus_shift;
+	phys_addr_t mmc0_addr;
 	int scc_offset;
 	unsigned int scc_base_f_min;
 	struct renesas_sdhi_scc *taps;
@@ -46,6 +48,18 @@ struct tmio_mmc_dma {
 	struct tasklet_struct	dma_complete;
 };
 
+struct renesas_sdhi_quirks {
+	bool hs400_disabled;
+	bool hs400_4taps;
+	bool dtranend1_bit17;
+	bool hs400_manual_correction;
+	bool hs400_ignore_dat_correction;
+	bool hs400_manual_calib;
+	u32 hs400_offset;
+	const u32 *hs400_calib_table;
+	u32 hs400_bad_tap;
+};
+
 struct renesas_sdhi {
 	struct clk *clk;
 	struct clk *clk_cd;
@@ -58,8 +72,13 @@ struct renesas_sdhi {
 	u32 scc_tappos_hs400;
 	int scc_offset;
 	unsigned int scc_base_f_min;
+	bool dtranend1_bit17;
 	u32 adjust_hs400_offset;
-	u32 adjust_hs400_calibrate;
+	const u32 *adjust_hs400_calib_table;
+	bool doing_tune;
+	bool hs400_manual_correction;
+	bool hs400_ignore_dat_correction;
+	u32 hs400_bad_tap;
 };
 
 #define host_to_priv(host) \
