@@ -253,6 +253,18 @@ int rsnd_channel_normalization(int chan)
 	return chan;
 }
 
+static int rsnd_runtime_is_ssi_multi_with_params(struct rsnd_dai_stream *io,
+						 struct snd_pcm_hw_params *params)
+{
+	struct rsnd_dai *rdai = rsnd_io_to_rdai(io);
+	int lane = rsnd_rdai_ssi_lane_get(rdai);
+	int chan = rsnd_io_is_play(io) ?
+		rsnd_runtime_channel_after_ctu_with_params(io, params) :
+		rsnd_runtime_channel_original_with_params(io, params);
+
+	return (chan > 2) && (lane > 1);
+}
+
 int rsnd_runtime_channel_for_ssi_with_params(struct rsnd_dai_stream *io,
 					     struct snd_pcm_hw_params *params)
 {
@@ -262,7 +274,7 @@ int rsnd_runtime_channel_for_ssi_with_params(struct rsnd_dai_stream *io,
 		rsnd_runtime_channel_original_with_params(io, params);
 
 	/* Use Multi SSI */
-	if (rsnd_runtime_is_ssi_multi(io))
+	if (rsnd_runtime_is_ssi_multi_with_params(io, params))
 		chan /= rsnd_rdai_ssi_lane_get(rdai);
 
 	return rsnd_channel_normalization(chan);
