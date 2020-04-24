@@ -109,6 +109,14 @@ static int dw_hdmi_i2s_hw_params(struct device *dev, void *data,
 	hdmi_write(audio, conf0, HDMI_AUD_CONF0);
 	hdmi_write(audio, conf1, HDMI_AUD_CONF1);
 
+	/* HACK: Re-reset I2S in an attempt to fix inter-channel sample offset
+	 * Without this second reset of the I2S interface, it was observed on
+	 * the R-Car Gen3 platform that in ~50% of audio stream starts, the
+	 * samples on each odd-numbered channel were delayed by one sample
+	 * relative to the even-numbered channels.
+	 */
+	audio->write(audio->hdmi, (u8)~HDMI_MC_SWRSTZ_I2SSWRST_REQ,
+		     HDMI_MC_SWRSTZ);
 	return 0;
 }
 
