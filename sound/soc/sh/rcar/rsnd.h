@@ -439,9 +439,18 @@ int rsnd_runtime_is_ssi_tdm(struct rsnd_dai_stream *io);
 #define RSND_NODE_MIX	"rcar_sound,mix"
 #define RSND_NODE_DVC	"rcar_sound,dvc"
 
+
 /*
  *	R-Car sound DAI
  */
+enum rsnd_ssi_clksrc {
+	clksrc_auto       = 0,
+	clksrc_audio_clka = 1,
+	clksrc_audio_clkb = 2,
+	clksrc_audio_clkc = 3,
+	clksrc_audio_clki = 4,
+};
+
 #define RSND_DAI_NAME_SIZE	16
 struct rsnd_dai_stream {
 	char name[RSND_DAI_NAME_SIZE];
@@ -451,6 +460,7 @@ struct rsnd_dai_stream {
 	struct rsnd_dai *rdai;
 	struct device *dmac_dev; /* for IPMMU */
 	u32 parent_ssi_status;
+	enum rsnd_ssi_clksrc ssi_clksrc;
 };
 #define rsnd_io_to_mod(io, i)	((i) < RSND_MOD_MAX ? (io)->mod[(i)] : NULL)
 #define rsnd_io_to_mod_ssi(io)	rsnd_io_to_mod((io), RSND_MOD_SSI)
@@ -527,13 +537,6 @@ phys_addr_t rsnd_gen_get_phy_addr(struct rsnd_priv *priv, int reg_id);
 /*
  *	R-Car ADG
  */
-enum rsnd_ssi_clksrc {
-	clksrc_auto       = 0,
-	clksrc_audio_clka = 1,
-	clksrc_audio_clkb = 2,
-	clksrc_audio_clkc = 3,
-	clksrc_audio_clki = 4,
-};
 int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate,
 		       enum rsnd_ssi_clksrc clksrc);
 int rsnd_adg_ssi_clk_stop(struct rsnd_mod *mod);

@@ -87,7 +87,6 @@ struct rsnd_ssi {
 	int rate;
 	int irq;
 	unsigned int usrcnt;
-	enum rsnd_ssi_clksrc clksrc;
 
 	/* for PIO */
 	int byte_pos;
@@ -256,7 +255,7 @@ unsigned int rsnd_ssi_clk_query(struct rsnd_priv *priv,
 		 */
 		main_rate = 32 * param1 * param2 * ssi_clk_mul_table[j];
 
-		ret = rsnd_adg_clk_query(priv, main_rate, ssi->clksrc);
+		ret = rsnd_adg_clk_query(priv, main_rate, io->ssi_clksrc);
 		if (ret < 0)
 			continue;
 
@@ -309,7 +308,7 @@ static int rsnd_ssi_master_clk_start(struct rsnd_mod *mod,
 		return -EIO;
 	}
 
-	ret = rsnd_adg_ssi_clk_try_start(mod, main_rate, ssi->clksrc);
+	ret = rsnd_adg_ssi_clk_try_start(mod, main_rate, io->ssi_clksrc);
 	if (ret < 0)
 		return ret;
 
@@ -763,7 +762,7 @@ static int rsnd_ssi_clksrc_get(struct snd_kcontrol *kctrl,
 {
 	struct rsnd_dai_stream *io = snd_kcontrol_chip(kctrl);
 	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(rsnd_io_to_mod_ssi(io));
-	uc->value.enumerated.item[0] = ssi->clksrc;
+	uc->value.enumerated.item[0] = io->ssi_clksrc;
 	return 0;
 }
 
@@ -776,11 +775,11 @@ static int rsnd_ssi_clksrc_put(struct snd_kcontrol *kctrl,
 	bool change;
 
 	/* Accept only when SSI stopped. */
-	if (runtime)
-		return 0;
+	if (runtime && runtime->status->state >= SNDRV_PCM_STATE_SETUP)
+		return -EBUSY;
 
-	change = ssi->clksrc != uc->value.enumerated.item[0];
-	ssi->clksrc = uc->value.enumerated.item[0];
+	change = io->ssi_clksrc != uc->value.enumerated.item[0];
+	io->ssi_clksrc = uc->value.enumerated.item[0];
 
 	return change;
 }
