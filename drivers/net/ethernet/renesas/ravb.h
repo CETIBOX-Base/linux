@@ -708,6 +708,7 @@ enum GIC_BIT {
 enum GIS_BIT {
 	GIS_PTCF	= 0x00000001,	/* Undocumented? */
 	GIS_PTMF	= 0x00000004,
+	GIS_ATCF0	= 0x00010000,
 	GIS_RESERVED	= GENMASK(15, 10),
 };
 
@@ -1121,6 +1122,8 @@ enum ravb_chip_id {
 	RCAR_GEN3,
 };
 
+#define NUM_AVTP_CAPTURE 16
+
 struct ravb_private {
 	struct net_device *ndev;
 	struct platform_device *pdev;
@@ -1171,6 +1174,9 @@ struct ravb_private {
 	unsigned avb_link_active_low:1;
 	unsigned wol_enabled:1;
 	int num_tx_desc;        /* TX descriptors per packet */
+
+	struct wait_queue_head avtp_capture_wq;
+	struct list_head avtp_capture[NUM_AVTP_CAPTURE];
 };
 
 static inline u32 ravb_read(struct net_device *ndev, enum ravb_reg reg)
@@ -1198,4 +1204,9 @@ void ravb_ptp_stop(struct net_device *ndev);
 
 int ravb_ptp_time_read_xts(struct ravb_private *priv, struct timespec64 *ts,
 						   ktime_t *time);
+
+struct ctc_mediats_ctx;
+struct ctc_mediats_ctx* ravb_mediats_open(struct net_device *ndev, unsigned capture_unit,
+										  u8 prescaler, unsigned ring_size);
+
 #endif	/* #ifndef __RAVB_H__ */

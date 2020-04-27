@@ -226,8 +226,11 @@ u32 rsnd_ssi_multi_slaves_runtime(struct rsnd_dai_stream *io)
 }
 
 unsigned int rsnd_ssi_clk_query(struct rsnd_priv *priv,
-		       int param1, int param2, int *idx)
+				struct rsnd_dai_stream *io, int param1,
+				int param2, int *idx)
 {
+	struct rsnd_mod *ssi_mod = rsnd_io_to_mod_ssi(io);
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(ssi_mod);
 	int ssi_clk_mul_table[] = {
 		1, 2, 4, 8, 16, 6, 12,
 	};
@@ -252,7 +255,7 @@ unsigned int rsnd_ssi_clk_query(struct rsnd_priv *priv,
 		 */
 		main_rate = 32 * param1 * param2 * ssi_clk_mul_table[j];
 
-		ret = rsnd_adg_clk_query(priv, main_rate);
+		ret = rsnd_adg_clk_query(priv, main_rate, io->ssi_clksrc);
 		if (ret < 0)
 			continue;
 
@@ -299,13 +302,13 @@ static int rsnd_ssi_master_clk_start(struct rsnd_mod *mod,
 
 	chan = rsnd_channel_normalization(chan);
 
-	main_rate = rsnd_ssi_clk_query(priv, rate, chan, &idx);
+	main_rate = rsnd_ssi_clk_query(priv, io, rate, chan, &idx);
 	if (!main_rate) {
 		dev_err(dev, "unsupported clock rate\n");
 		return -EIO;
 	}
 
-	ret = rsnd_adg_ssi_clk_try_start(mod, main_rate);
+	ret = rsnd_adg_ssi_clk_try_start(mod, main_rate, io->ssi_clksrc);
 	if (ret < 0)
 		return ret;
 
@@ -731,10 +734,101 @@ static void rsnd_ssi_parent_attach(struct rsnd_mod *mod,
 	}
 }
 
+static const char *const ssi_clock_sources[] = {
+	[clksrc_auto]       = "auto",
+	[clksrc_audio_clka] = "audio_clka",
+	[clksrc_audio_clkb] = "audio_clkb",
+	[clksrc_audio_clkc] = "audio_clkc",
+	[clksrc_audio_clki] = "audio_clki",
+};
+
+static int rsnd_ssi_clksrc_info(struct snd_kcontrol *kctrl,
+				struct snd_ctl_elem_info *uinfo)
+{
+	const int max = ARRAY_SIZE(ssi_clock_sources);
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
+	uinfo->count = 1;
+	uinfo->value.enumerated.items = max;
+	if (uinfo->value.enumerated.item >= max)
+		uinfo->value.enumerated.item = max - 1;
+	strlcpy(uinfo->value.enumerated.name,
+		ssi_clock_sources[uinfo->value.enumerated.item],
+		sizeof(uinfo->value.enumerated.name));
+	return 0;
+}
+
+static int rsnd_ssi_clksrc_get(struct snd_kcontrol *kctrl,
+			       struct snd_ctl_elem_value *uc)
+{
+	struct rsnd_dai_stream *io = snd_kcontrol_chip(kctrl);
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(rsnd_io_to_mod_ssi(io));
+	uc->value.enumerated.item[0] = io->ssi_clksrc;
+	return 0;
+}
+
+static int rsnd_ssi_clksrc_put(struct snd_kcontrol *kctrl,
+			       struct snd_ctl_elem_value *uc)
+{
+	struct rsnd_dai_stream *io = snd_kcontrol_chip(kctrl);
+	struct snd_pcm_runtime *runtime = rsnd_io_to_runtime(io);
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(rsnd_io_to_mod_ssi(io));
+	bool change;
+
+	/* Accept only when SSI stopped. */
+	if (runtime && runtime->status->state >= SNDRV_PCM_STATE_SETUP)
+		return -EBUSY;
+
+	change = io->ssi_clksrc != uc->value.enumerated.item[0];
+	io->ssi_clksrc = uc->value.enumerated.item[0];
+
+	return change;
+}
+
+static int rsnd_ssi_create_clksrc_control(struct rsnd_dai_stream *io,
+					  struct snd_soc_pcm_runtime *rtd)
+{
+	struct snd_card *card = rtd->card->snd_card;
+	struct snd_kcontrol *kctrl;
+	struct snd_kcontrol_new knew = {
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name  = "SSI Clock Source Override",
+		.device    = rtd->pcm->device,
+		.info      = rsnd_ssi_clksrc_info,
+		.get       = rsnd_ssi_clksrc_get,
+		.put       = rsnd_ssi_clksrc_put,
+	};
+	int ret;
+
+	list_for_each_entry(kctrl, &card->controls, list) {
+		if (kctrl->private_data == io &&
+		    kctrl->info == &rsnd_ssi_clksrc_info)
+			return 0;
+	}
+
+	kctrl = snd_ctl_new1(&knew, io);
+	if (!kctrl)
+		return -ENOMEM;
+
+	ret = snd_ctl_add(card, kctrl);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
 static int rsnd_ssi_pcm_new(struct rsnd_mod *mod,
 			    struct rsnd_dai_stream *io,
 			    struct snd_soc_pcm_runtime *rtd)
 {
+	struct rsnd_dai *rdai = rsnd_io_to_rdai(io);
+	int ret;
+
+	if (rsnd_rdai_is_clk_master(rdai) && rsnd_ssi_can_output_clk(mod) &&
+	    !rsnd_ssi_is_multi_slave(mod, io)) {
+		ret = rsnd_ssi_create_clksrc_control(io, rtd);
+		if (ret)
+			return ret;
+	}
 	/*
 	 * rsnd_rdai_is_clk_master() will be enabled after set_fmt,
 	 * and, pcm_new will be called after it.

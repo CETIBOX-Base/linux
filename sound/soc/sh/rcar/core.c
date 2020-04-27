@@ -782,7 +782,7 @@ static unsigned int rsnd_soc_hw_rate_list[] = {
 	192000,
 };
 
-static int rsnd_soc_hw_rule(struct rsnd_priv *priv,
+static int rsnd_soc_hw_rule(struct rsnd_priv *priv, struct rsnd_dai_stream *io,
 			    unsigned int *list, int list_num,
 			    struct snd_interval *baseline, struct snd_interval *iv)
 {
@@ -799,14 +799,14 @@ static int rsnd_soc_hw_rule(struct rsnd_priv *priv,
 		if (!snd_interval_test(iv, list[i]))
 			continue;
 
-		rate = rsnd_ssi_clk_query(priv,
+		rate = rsnd_ssi_clk_query(priv, io,
 					  baseline->min, list[i], NULL);
 		if (rate > 0) {
 			p.min = min(p.min, list[i]);
 			p.max = max(p.max, list[i]);
 		}
 
-		rate = rsnd_ssi_clk_query(priv,
+		rate = rsnd_ssi_clk_query(priv, io,
 					  baseline->max, list[i], NULL);
 		if (rate > 0) {
 			p.min = min(p.min, list[i]);
@@ -838,7 +838,7 @@ static int __rsnd_soc_hw_rule_rate(struct snd_pcm_hw_params *params,
 	ic.min =
 	ic.max = rsnd_runtime_channel_for_ssi_with_params(io, params);
 
-	return rsnd_soc_hw_rule(priv, rsnd_soc_hw_rate_list,
+	return rsnd_soc_hw_rule(priv, io, rsnd_soc_hw_rate_list,
 				ARRAY_SIZE(rsnd_soc_hw_rate_list),
 				&ic, ir);
 }
@@ -876,7 +876,7 @@ static int __rsnd_soc_hw_rule_channels(struct snd_pcm_hw_params *params,
 	ic.min =
 	ic.max = rsnd_runtime_channel_for_ssi_with_params(io, params);
 
-	return rsnd_soc_hw_rule(priv, rsnd_soc_hw_channels_list,
+	return rsnd_soc_hw_rule(priv, io, rsnd_soc_hw_channels_list,
 				ARRAY_SIZE(rsnd_soc_hw_channels_list),
 				ir, &ic);
 }

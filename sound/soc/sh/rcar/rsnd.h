@@ -151,6 +151,11 @@ enum rsnd_reg {
 	RSND_REG_AUDIO_CLK_SEL0,
 	RSND_REG_AUDIO_CLK_SEL1,
 	RSND_REG_AUDIO_CLK_SEL2,
+	RSND_REG_AVB_SYNC_SEL0,
+	RSND_REG_AVB_SYNC_SEL1,
+	RSND_REG_AVB_SYNC_SEL2,
+	RSND_REG_AVB_SYNC_DIV0,
+	RSND_REG_AVB_SYNC_DIV1,
 
 	/* SSIU */
 	RSND_REG_SSI_MODE,
@@ -434,9 +439,18 @@ int rsnd_runtime_is_ssi_tdm(struct rsnd_dai_stream *io);
 #define RSND_NODE_MIX	"rcar_sound,mix"
 #define RSND_NODE_DVC	"rcar_sound,dvc"
 
+
 /*
  *	R-Car sound DAI
  */
+enum rsnd_ssi_clksrc {
+	clksrc_auto       = 0,
+	clksrc_audio_clka = 1,
+	clksrc_audio_clkb = 2,
+	clksrc_audio_clkc = 3,
+	clksrc_audio_clki = 4,
+};
+
 #define RSND_DAI_NAME_SIZE	16
 struct rsnd_dai_stream {
 	char name[RSND_DAI_NAME_SIZE];
@@ -446,6 +460,7 @@ struct rsnd_dai_stream {
 	struct rsnd_dai *rdai;
 	struct device *dmac_dev; /* for IPMMU */
 	u32 parent_ssi_status;
+	enum rsnd_ssi_clksrc ssi_clksrc;
 };
 #define rsnd_io_to_mod(io, i)	((i) < RSND_MOD_MAX ? (io)->mod[(i)] : NULL)
 #define rsnd_io_to_mod_ssi(io)	rsnd_io_to_mod((io), RSND_MOD_SSI)
@@ -522,9 +537,11 @@ phys_addr_t rsnd_gen_get_phy_addr(struct rsnd_priv *priv, int reg_id);
 /*
  *	R-Car ADG
  */
-int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate);
+int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate,
+		       enum rsnd_ssi_clksrc clksrc);
 int rsnd_adg_ssi_clk_stop(struct rsnd_mod *mod);
-int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *mod, unsigned int rate);
+int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *mod, unsigned int rate,
+			       enum rsnd_ssi_clksrc clksrc);
 int rsnd_adg_probe(struct rsnd_priv *priv);
 void rsnd_adg_remove(struct rsnd_priv *priv);
 int rsnd_adg_set_src_timesel_gen2(struct rsnd_mod *src_mod,
@@ -720,7 +737,8 @@ void rsnd_parse_connect_ssi(struct rsnd_dai *rdai,
 			    struct device_node *playback,
 			    struct device_node *capture);
 unsigned int rsnd_ssi_clk_query(struct rsnd_priv *priv,
-		       int param1, int param2, int *idx);
+				struct rsnd_dai_stream *io,
+				int param1, int param2, int *idx);
 
 /*
  *	R-Car SSIU

@@ -41,6 +41,8 @@ struct rsnd_adg {
 
 	int rbga_rate_for_441khz; /* RBGA */
 	int rbgb_rate_for_48khz;  /* RBGB */
+	enum rsnd_ssi_clksrc rbga_clksrc, rbgb_clksrc;
+	bool explicit_clocks[CLKMAX];
 };
 
 #define LRCLK_ASYNC	(1 << 0)
@@ -57,6 +59,21 @@ struct rsnd_adg {
 	     ((pos) = adg->clkout[i]);	\
 	     i++)
 #define rsnd_priv_to_adg(priv) ((struct rsnd_adg *)(priv)->adg)
+
+static enum rsnd_ssi_clksrc rsnd_clk_to_clksrc(int clk) {
+	switch(clk) {
+	case CLKA:
+		return clksrc_audio_clka;
+	case CLKB:
+		return clksrc_audio_clkb;
+	case CLKC:
+		return clksrc_audio_clkc;
+	case CLKI:
+		return clksrc_audio_clki;
+	default:
+		return 0;
+	}
+}
 
 static const char * const clk_name[] = {
 	[CLKA]	= "clk_a",
@@ -318,7 +335,8 @@ static void rsnd_adg_set_ssi_clk(struct rsnd_mod *ssi_mod, u32 val)
 	dev_dbg(dev, "AUDIO_CLK_SEL is 0x%x\n", val);
 }
 
-int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
+int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate,
+		       enum rsnd_ssi_clksrc clksrc)
 {
 	struct rsnd_adg *adg = rsnd_priv_to_adg(priv);
 	struct clk *clk;
@@ -335,6 +353,10 @@ int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
 	 * AUDIO_CLKA/AUDIO_CLKB/AUDIO_CLKC/AUDIO_CLKI.
 	 */
 	for_each_rsnd_clk(clk, adg, i) {
+		if (clksrc != clksrc_auto && rsnd_clk_to_clksrc(i) != clksrc)
+			continue;
+		if (clksrc == clksrc_auto && adg->explicit_clocks[i])
+			continue;
 		if (rate == adg->clk_rate[i])
 			return sel_table[i];
 	}
@@ -342,10 +364,12 @@ int rsnd_adg_clk_query(struct rsnd_priv *priv, unsigned int rate)
 	/*
 	 * find divided clock from BRGA/BRGB
 	 */
-	if (rate == adg->rbga_rate_for_441khz)
+	if (rate == adg->rbga_rate_for_441khz &&
+	    (clksrc == clksrc_auto || clksrc == adg->rbga_clksrc))
 		return 0x10;
 
-	if (rate == adg->rbgb_rate_for_48khz)
+	if (rate == adg->rbgb_rate_for_48khz &&
+	    (clksrc == clksrc_auto || clksrc == adg->rbgb_clksrc))
 		return 0x20;
 
 	return -EIO;
@@ -358,7 +382,8 @@ int rsnd_adg_ssi_clk_stop(struct rsnd_mod *ssi_mod)
 	return 0;
 }
 
-int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate)
+int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate,
+			       enum rsnd_ssi_clksrc clksrc)
 {
 	struct rsnd_priv *priv = rsnd_mod_to_priv(ssi_mod);
 	struct rsnd_adg *adg = rsnd_priv_to_adg(priv);
@@ -367,7 +392,7 @@ int rsnd_adg_ssi_clk_try_start(struct rsnd_mod *ssi_mod, unsigned int rate)
 	int data;
 	u32 ckr = 0;
 
-	data = rsnd_adg_clk_query(priv, rate);
+	data = rsnd_adg_clk_query(priv, rate, clksrc);
 	if (data < 0)
 		return data;
 
@@ -420,7 +445,7 @@ void rsnd_adg_clk_control(struct rsnd_priv *priv, int enable)
 	}
 }
 
-static void rsnd_adg_get_clkin(struct rsnd_priv *priv,
+static int rsnd_adg_get_clkin(struct rsnd_priv *priv,
 			       struct rsnd_adg *adg)
 {
 	struct device *dev = rsnd_priv_to_dev(priv);
@@ -430,7 +455,19 @@ static void rsnd_adg_get_clkin(struct rsnd_priv *priv,
 	for (i = 0; i < CLKMAX; i++) {
 		clk = devm_clk_get(dev, clk_name[i]);
 		adg->clk[i] = IS_ERR(clk) ? NULL : clk;
+		if (IS_ERR(clk)) {
+			dev_warn(dev, "can't get clk[%d] %s: %ld\n", i,
+				 clk_name[i], PTR_ERR(clk));
+			if (PTR_ERR(clk) == -EPROBE_DEFER)
+				return PTR_ERR(clk);
+		}
+		if (of_property_match_string(dev->of_node,
+					     "rcar_sound,explicit-only-clocks",
+					     clk_name[i]) >= 0)
+			adg->explicit_clocks[i] = true;
 	}
+
+	return 0;
 }
 
 static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
@@ -512,6 +549,8 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 
 		if (0 == rate) /* not used */
 			continue;
+		if (adg->explicit_clocks[i])
+			continue;
 
 		/* RBGA */
 		if (!adg->rbga_rate_for_441khz && (0 == rate % 44100)) {
@@ -523,6 +562,7 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 				rbga = rbgx;
 				adg->rbga_rate_for_441khz = rate / div;
 				ckr |= brg_table[i] << 20;
+				adg->rbga_clksrc = rsnd_clk_to_clksrc(i);
 				if (req_441kHz_rate &&
 				    !rsnd_flags_has(adg, AUDIO_OUT_48))
 					parent_clk_name = __clk_get_name(clk);
@@ -539,6 +579,7 @@ static void rsnd_adg_get_clkout(struct rsnd_priv *priv,
 				rbgb = rbgx;
 				adg->rbgb_rate_for_48khz = rate / div;
 				ckr |= brg_table[i] << 16;
+				adg->rbgb_clksrc = rsnd_clk_to_clksrc(i);
 				if (req_48kHz_rate &&
 				    rsnd_flags_has(adg, AUDIO_OUT_48))
 					parent_clk_name = __clk_get_name(clk);
@@ -614,11 +655,113 @@ static void rsnd_adg_clk_dbg_info(struct rsnd_priv *priv, struct rsnd_adg *adg)
 #define rsnd_adg_clk_dbg_info(priv, adg)
 #endif
 
+static int rsnd_adg_avb_sync(struct rsnd_priv *priv, struct rsnd_adg *adg)
+{
+	static const char *const avb_adg_map[] = {
+		[0] = "0",
+		[8] = "audio_clk_div.0",
+		[9] = "audio_clk_div.1",
+		[10] = "audio_clk_div.2",
+		[16] = "ssi.0",
+		[17] = "ssi.1",
+		[18] = "ssi.2",
+		[19] = "ssi.3",
+		[20] = "ssi.4",
+		[21] = "ssi.5",
+		[22] = "ssi.6",
+		[23] = "ssi.7",
+		[25] = "ssi.9",
+		[32] = "avb_div8.0",
+		[33] = "avb_div8.1",
+		[34] = "avb_div8.2",
+		[35] = "avb_div8.3",
+		[36] = "avb_div8.4",
+		[37] = "avb_div8.5",
+		[38] = "avb_div8.6",
+		[39] = "avb_div8.7",
+	};
+	struct device *dev = rsnd_priv_to_dev(priv);
+	struct device_node *np = dev->of_node;
+	struct rsnd_mod *adg_mod = rsnd_mod_get(adg);
+	int ret, num_entries, i, j;
+	u32 avb_sync_sel[3] = {0};
+
+	ret = of_property_count_strings(np, "rcar_sound,avb-adg-sync");
+	if (ret < 0)
+		return ret;
+	if (ret > 12) {
+		dev_warn(dev, "Ignoring excess avb-adg-sync mappings (max. 12)\n");
+		ret = 12;
+	}
+	num_entries = ret;
+
+	for (i = 0;i < num_entries;++i) {
+		const char* mapping;
+		ret = of_property_read_string_index(np, "rcar_sound,avb-adg-sync", i, &mapping);
+		if (ret != 0)
+			return ret;
+
+		for(j = 0;j < ARRAY_SIZE(avb_adg_map);++j) {
+			if (avb_adg_map[j] && strcmp(mapping, avb_adg_map[j]) == 0)
+				break;
+		}
+		if (j == ARRAY_SIZE(avb_adg_map)) {
+			dev_warn(dev, "Invalid mapping in avb-adg-sync: %s at index %d\n", mapping, i);
+			return -EINVAL;
+		}
+		avb_sync_sel[2-i/4] |= (u32)j << (8*(i%4));
+	}
+
+	for(i = 0;i < 3;++i)
+		dev_dbg(dev, "avb_sync_sel[%d] = %08x\n", i, avb_sync_sel[i]);
+
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL0, avb_sync_sel[0]);
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL1, avb_sync_sel[1]);
+	rsnd_mod_write(adg_mod, AVB_SYNC_SEL2, avb_sync_sel[2]);
+
+	return 0;
+}
+
+static int rsnd_audio_clk_div(struct rsnd_priv *priv, struct rsnd_adg *adg)
+{
+	struct device *dev = rsnd_priv_to_dev(priv);
+	struct device_node *np = dev->of_node;
+	struct rsnd_mod *adg_mod = rsnd_mod_get(adg);
+	u32 dividers[3] = {0};
+	u32 avb_sync_div = 0;
+	int ret, i;
+
+	/* If property does not exist, use defaults (0) */
+	ret = of_property_read_u32_array(np, "rcar_sound,audio-clk-div", dividers,
+					 ARRAY_SIZE(dividers));
+	if (ret < 0 && ret != -EINVAL)
+		return ret;
+
+	for (i = 0;i < 3;++i) {
+		unsigned log;
+		if (!dividers[i])
+			continue;
+		if (!is_power_of_2(dividers[i]) || dividers [i] > (1u<<15)) {
+			dev_warn(dev, "Invalid divider for audio_clk_div3[%d]: %u\n",
+				 i, dividers[i]);
+			return -EINVAL;
+		}
+		log = ilog2(dividers[i]);
+		avb_sync_div |= (log&0xf)<<(i*4);
+	}
+	dev_dbg(dev, "avb_sync_div0 = %08x\n", avb_sync_div);
+	rsnd_mod_write(adg_mod, AVB_SYNC_DIV0, avb_sync_div);
+
+	return ret;
+}
+
 int rsnd_adg_probe(struct rsnd_priv *priv)
 {
 	struct rsnd_adg *adg;
 	struct device *dev = rsnd_priv_to_dev(priv);
-	int ret;
+	struct device_node *np = dev->of_node;
+	struct clk *clk;
+	int ret, i;
 
 	adg = devm_kzalloc(dev, sizeof(*adg), GFP_KERNEL);
 	if (!adg)
@@ -629,15 +772,29 @@ int rsnd_adg_probe(struct rsnd_priv *priv)
 	if (ret)
 		return ret;
 
-	rsnd_adg_get_clkin(priv, adg);
+	ret = rsnd_adg_get_clkin(priv, adg);
+	if (ret)
+		return ret;
 	rsnd_adg_get_clkout(priv, adg);
 	rsnd_adg_clk_dbg_info(priv, adg);
+	ret = rsnd_adg_avb_sync(priv, adg);
+	if (ret)
+		goto clk_remove;
+	ret = rsnd_audio_clk_div(priv, adg);
+	if (ret)
+		goto clk_remove;
 
 	priv->adg = adg;
-
 	rsnd_adg_clk_enable(priv);
 
 	return 0;
+  clk_remove:
+	for_each_rsnd_clkout(clk, adg, i)
+		if (adg->clkout[i])
+			clk_unregister_fixed_rate(adg->clkout[i]);
+
+	of_clk_del_provider(np);
+	return ret;
 }
 
 void rsnd_adg_remove(struct rsnd_priv *priv)

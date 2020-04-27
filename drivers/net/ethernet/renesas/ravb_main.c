@@ -2302,7 +2302,6 @@ MODULE_LICENSE("GPL v2");
 static int ravb_get_ethts(struct net_device *netdev, u_int64_t *ethts)
 {
 	struct ravb_private *priv = netdev_priv(netdev);
-	unsigned long flags;
 	int err;
 	struct timespec64 ts;
 
@@ -2381,8 +2380,9 @@ static const struct ctc_avbeth_ops ravb_avbeth_ops = {
 	.get_queue_for_class = ravb_get_queue_for_class,
 	.queue_add_vlan = ravb_queue_add_vlan,
 	.queue_remove_vlan = ravb_queue_remove_vlan,
-	.queue_adjust_shaper = ravb_queue_adjust_shaper
+	.queue_adjust_shaper = ravb_queue_adjust_shaper,
 };
+
 
 struct ctc_avbeth_ops const* ravb_avbeth_get_ops(void)
 {

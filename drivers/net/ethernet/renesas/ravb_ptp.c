@@ -10,7 +10,13 @@
  *  (at your option) any later version.
  */
 
+#include <linux/bitops.h>
+#include <linux/kthread.h>
+#include <linux/mediats_ops.h>
+
 #include "ravb.h"
+
+static void ravb_avtp_capture_int(struct ravb_private *priv, u32 gis);
 
 static int ravb_ptp_tcr_request(struct ravb_private *priv, u32 request)
 {
@@ -350,6 +356,12 @@ irqreturn_t ravb_ptp_interrupt(struct net_device *ndev)
 		result = IRQ_HANDLED;
 		ravb_write(ndev, ~(GIS_PTCF | GIS_RESERVED), GIS);
 	}
+	if (gis & 0xffff0000) { // Any ATCFi bit
+		ravb_avtp_capture_int(priv, gis);
+
+		result = IRQ_HANDLED;
+		ravb_write(ndev, ~((gis&0xffff0000) | GIS_RESERVED), GIS);
+	}
 	if (gis & GIS_PTMF) {
 		struct ravb_ptp_perout *perout = priv->ptp.perout;
 
@@ -369,11 +381,17 @@ void ravb_ptp_init(struct net_device *ndev, struct platform_device *pdev)
 {
 	struct ravb_private *priv = netdev_priv(ndev);
 	unsigned long flags;
+	unsigned capture_unit;
 
 	priv->ptp.info = ravb_ptp_info;
 
 	priv->ptp.default_addend = ravb_read(ndev, GTI);
 	priv->ptp.current_addend = priv->ptp.default_addend;
+
+	init_waitqueue_head(&priv->avtp_capture_wq);
+	for(capture_unit = 0;capture_unit < NUM_AVTP_CAPTURE;++capture_unit) {
+		INIT_LIST_HEAD(&priv->avtp_capture[capture_unit]);
+	}
 
 	spin_lock_irqsave(&priv->lock, flags);
 	ravb_wait(ndev, GCCR, GCCR_TCR, GCCR_TCR_NOREQ);
@@ -382,6 +400,197 @@ void ravb_ptp_init(struct net_device *ndev, struct platform_device *pdev)
 	spin_unlock_irqrestore(&priv->lock, flags);
 
 	priv->ptp.clock = ptp_clock_register(&priv->ptp.info, &pdev->dev);
+}
+
+
+static int ravb_mediats_close(struct ctc_mediats_ctx* ctx);
+static int ravb_mediats_get(struct ctc_mediats_ctx* ctx, uint32_t *ts, bool blocking);
+static int ravb_mediats_flush(struct ctc_mediats_ctx *mctx);
+
+static const struct ctc_mediats_ops ravb_mediats_ops = {
+	.close = &ravb_mediats_close,
+	.get = &ravb_mediats_get,
+	.flush = &ravb_mediats_flush,
+};
+
+struct ravb_avtp_capture {
+	struct ctc_mediats_ctx ctx;
+	struct list_head list;
+	struct ravb_private *priv;
+	unsigned ring_size, read_pos, write_pos, overruns;
+	u8 capture_unit, prescaler;
+	u32 timestamps[];
+};
+
+static u32 ravb_avtp_capture_gis_bit(unsigned capture_unit)
+{
+	return (GIS_ATCF0<<capture_unit);
+}
+
+struct ctc_mediats_ctx* ravb_mediats_open(struct net_device *ndev, unsigned capture_unit,
+										  u8 prescaler, unsigned ring_size)
+{
+	struct ravb_private *priv = netdev_priv(ndev);
+	struct ravb_avtp_capture *ret, *it;
+	u32 gis;
+
+	if (capture_unit >= NUM_AVTP_CAPTURE || !prescaler)
+		return NULL;
+
+	ret = kvzalloc(sizeof(*ret)+4*ring_size, GFP_KERNEL);
+	if (!ret)
+		return NULL;
+	ret->ctx.ops = &ravb_mediats_ops;
+	ret->priv = priv;
+	ret->ring_size = ring_size;
+	ret->prescaler = prescaler;
+	ret->capture_unit = capture_unit;
+
+	spin_lock_irq(&priv->lock);
+	/* For now, only support the trivial case that all contexts on the same unit
+	   have the same prescaler. */
+	list_for_each_entry(it, &priv->avtp_capture[capture_unit], list) {
+		if (it->prescaler != prescaler)
+			goto err_free;
+	}
+
+	if (list_empty(&priv->avtp_capture[capture_unit])) {
+		ravb_write(ndev, (capture_unit<<8)|(prescaler-1), GACP);
+
+		/* Clear any stale data */
+		gis = ravb_read(ndev, GIS);
+		if (gis&ravb_avtp_capture_gis_bit(capture_unit)) {
+			ravb_read(ndev, GCAT0+capture_unit*4);
+			ravb_write(ndev, ~(ravb_avtp_capture_gis_bit(capture_unit) | GIS_RESERVED), GIS);
+		}
+
+		ravb_write(ndev, GIE_ATCS0<<capture_unit, GIE);
+
+		netdev_info(ndev, "AVTP: Opened unit %u with prescaler %hhu as %pK", capture_unit, prescaler, ret);
+	}
+	netdev_info(ndev, "AVTP: Created context %pK with queue depth %u\n", &ret->ctx, ret->ring_size);
+
+	list_add(&ret->list, &priv->avtp_capture[capture_unit]);
+	goto done;
+
+  err_free:
+	kvfree(ret);
+	ret = NULL;
+  done:
+	spin_unlock_irq(&priv->lock);
+	return ret?&ret->ctx:NULL;
+}
+EXPORT_SYMBOL(ravb_mediats_open);
+
+static int ravb_mediats_close(struct ctc_mediats_ctx *mctx)
+{
+	struct ravb_avtp_capture *ctx = container_of(mctx, struct ravb_avtp_capture, ctx);
+	struct ravb_private *priv = ctx->priv;
+	struct net_device *ndev = priv->ndev;
+
+	spin_lock_irq(&priv->lock);
+	list_del(&ctx->list);
+	if (list_empty(&priv->avtp_capture[ctx->capture_unit]))
+		ravb_write(ndev, GID_ATCD0<<ctx->capture_unit, GID);
+	spin_unlock_irq(&priv->lock);
+
+	kvfree(ctx);
+	return 0;
+}
+
+/* Caller must hold the lock */
+static void ravb_avtp_capture_int(struct ravb_private *priv, u32 gis)
+{
+	struct net_device *ndev = priv->ndev;
+	bool wake = false;
+	unsigned capture_unit;
+
+	for(capture_unit = 0; capture_unit < NUM_AVTP_CAPTURE;++capture_unit) {
+		if (gis&ravb_avtp_capture_gis_bit(capture_unit)) {
+			struct ravb_avtp_capture *unit;
+			u32 timestamp = ravb_read(ndev, GCAT0+capture_unit*4);
+			if (list_empty(&priv->avtp_capture[capture_unit])) {
+				// Spurious interrupt?
+				netdev_warn(ndev, "AVTP: Got spurious int on capture unit %u\n",
+							capture_unit);
+				continue;
+			}
+			list_for_each_entry(unit, &priv->avtp_capture[capture_unit], list) {
+				if ((unit->write_pos+1)%unit->ring_size == unit->read_pos) {
+					// Overflow?
+					if (!unit->overruns) // Warn on first overrun only
+						netdev_warn(ndev, "AVTP: Timestamp buffer overflow on capture unit %u (r: %u, w: %u)\n",
+									capture_unit, unit->read_pos, unit->write_pos);
+					++unit->overruns;
+					continue;
+				}
+				wake = true;
+				unit->timestamps[unit->write_pos] = timestamp;
+				unit->write_pos = (unit->write_pos+1)%unit->ring_size;
+			}
+		}
+	}
+
+	if (wake)
+		// Got timestamps, wake sleepers
+		wake_up_all(&priv->avtp_capture_wq);
+}
+
+static int ravb_mediats_get(struct ctc_mediats_ctx *mctx, u32 *avtp, bool wait)
+{
+	struct ravb_avtp_capture *ctx = container_of(mctx, struct ravb_avtp_capture, ctx);
+	struct ravb_private *priv = ctx->priv;
+	int err = 0;
+
+	if (!avtp) {
+		return -EINVAL;
+	}
+
+	spin_lock_irq(&priv->lock);
+	if (ctx->overruns > 0) {
+		err = -EIO;
+		ctx->overruns = 0;
+		goto out;
+	}
+	if (ctx->read_pos == ctx->write_pos) {
+		if (!wait) {
+			err = -EAGAIN;
+			goto out;
+		}
+		if (current->flags & PF_KTHREAD) {
+			wait_event_lock_irq(
+				priv->avtp_capture_wq,
+				ctx->read_pos != ctx->write_pos || kthread_should_stop(),
+				priv->lock);
+			if (kthread_should_stop())
+				err = -ERESTARTSYS;
+		} else {
+			err = wait_event_interruptible_lock_irq(
+				priv->avtp_capture_wq,
+				ctx->read_pos != ctx->write_pos,
+				priv->lock);
+		}
+		if (err != 0)
+			goto out;
+	}
+
+	*avtp = ctx->timestamps[ctx->read_pos];
+	ctx->read_pos = (ctx->read_pos+1)%ctx->ring_size;
+
+  out:
+	spin_unlock_irq(&priv->lock);
+	return err;
+}
+
+static int ravb_mediats_flush(struct ctc_mediats_ctx *mctx)
+{
+	struct ravb_avtp_capture *ctx = container_of(mctx, struct ravb_avtp_capture, ctx);
+	struct ravb_private *priv = ctx->priv;
+	spin_lock_irq(&priv->lock);
+	ctx->overruns = 0;
+	ctx->read_pos = ctx->write_pos;
+	spin_unlock_irq(&priv->lock);
+	return 0;
 }
 
 void ravb_ptp_stop(struct net_device *ndev)
