@@ -92,6 +92,8 @@ struct rsnd_ssi {
 	int byte_pos;
 	int byte_per_period;
 	int next_period_byte;
+
+	struct rsnd_dai_stream *io;
 };
 
 /* flags */
@@ -488,6 +490,33 @@ static int rsnd_ssi_quit(struct rsnd_mod *mod,
 	return 0;
 }
 
+static int rsnd_ssi_startup(struct rsnd_mod *mod,
+			    struct rsnd_dai_stream *io,
+			    struct rsnd_priv *priv)
+{
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(mod);
+	/* Restrict multiple DAIs using the same SSI.
+	 * Allow if SSI has parent/child connection, or if it is a setup with
+	 * multiple dais using the SSI behind a MIX.
+	 * Otherwise it is forbidden to use an SSI that is already in use.
+	 */
+	if (ssi->io && ssi->io->rdai != io->rdai &&
+	    (!rsnd_io_to_mod_mix(ssi->io) ||
+	     rsnd_io_to_mod_mix(ssi->io) != rsnd_io_to_mod_mix(io)))
+		return -EBUSY;
+	ssi->io = io;
+	return 0;
+}
+
+static int rsnd_ssi_cleanup(struct rsnd_mod *mod,
+			    struct rsnd_dai_stream *io,
+			    struct rsnd_priv *priv)
+{
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(mod);
+	ssi->io = NULL;
+	return 0;
+}
+
 static int rsnd_ssi_hw_params(struct rsnd_mod *mod,
 			      struct rsnd_dai_stream *io,
 			      struct snd_pcm_substream *substream,
@@ -572,9 +601,14 @@ static int rsnd_ssi_stop(struct rsnd_mod *mod,
 	 * Capture:  It might not receave data. Do nothing
 	 */
 	if (rsnd_io_is_play(io)) {
-		rsnd_mod_write(mod, SSICR, cr | EN);
+		rsnd_mod_write(mod, SSICR, cr | ssi->cr_en);
 		rsnd_ssi_status_check(mod, DIRQ);
 	}
+
+	/* In multi-SSI mode, stop is performed by setting ssi0129 in SSI_CONTROL to 0
+	 * (in rsnd_ssio_stop_gen2). Do nothing here. */
+	if (rsnd_ssi_multi_slaves_runtime(io))
+		return 0;
 
 	/*
 	 * disable SSI,
@@ -678,6 +712,9 @@ static void rsnd_ssi_parent_attach(struct rsnd_mod *mod,
 		return;
 
 	if (!rsnd_rdai_is_clk_master(rdai))
+		return;
+
+	if (rsnd_ssi_is_multi_slave(mod, io))
 		return;
 
 	switch (rsnd_mod_id(mod)) {
@@ -872,6 +909,9 @@ static struct rsnd_mod_ops rsnd_ssi_pio_ops = {
 	.pcm_new = rsnd_ssi_pcm_new,
 	.hw_params = rsnd_ssi_hw_params,
 	.prepare = rsnd_ssi_prepare,
+	.startup = rsnd_ssi_startup,
+	.cleanup = rsnd_ssi_cleanup,
+
 };
 
 static int rsnd_ssi_dma_probe(struct rsnd_mod *mod,
@@ -948,6 +988,8 @@ static struct rsnd_mod_ops rsnd_ssi_dma_ops = {
 	.fallback = rsnd_ssi_fallback,
 	.hw_params = rsnd_ssi_hw_params,
 	.prepare = rsnd_ssi_prepare,
+	.startup = rsnd_ssi_startup,
+	.cleanup = rsnd_ssi_cleanup,
 };
 
 int rsnd_ssi_is_dma_mode(struct rsnd_mod *mod)

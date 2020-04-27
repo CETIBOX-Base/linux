@@ -976,6 +976,7 @@ static int sti_hdmi_connector_get_modes(struct drm_connector *connector)
 
 	count = drm_add_edid_modes(connector, edid);
 	drm_mode_connector_update_edid_property(connector, edid);
+	drm_edid_to_eld(connector, edid);
 
 	kfree(edid);
 	return count;

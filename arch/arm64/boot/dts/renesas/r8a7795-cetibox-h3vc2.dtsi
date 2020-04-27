@@ -156,7 +156,7 @@
 	sound_cards: sound {
 		compatible = "audio-graph-card";
 		label = "rcar-sound";
-		dais = <&rsnd_port0 &rsnd_port1>;
+		dais = <&rsnd_port0 &rsnd_port1 &rsnd_port2>;
 	};
 
 	vcc_sdhi0: regulator-vcc-sdhi0 {
@@ -284,6 +284,13 @@
 				remote-endpoint = <&hdmi1_con>;
 			};
 		};
+
+		port@2 {
+			reg = <2>;
+			rcar_dw_hdmi1_sound_in: endpoint {
+				remote-endpoint = <&rsnd_endpoint2>;
+			};
+		};
 	};
 };
 
@@ -397,20 +404,17 @@
 
 	clock-frequency = <100000>;
 
-	video-receiver@70 {
+	adv7482_hdmi_in: video-receiver@70 {
 		compatible = "adi,adv7482";
 		reg = <0x70>;
 
 		#address-cells = <1>;
 		#size-cells = <0>;
-		#sound-dai-cells = <0>;
+		#clock-cells = <0>; /* the MCLK for I2S output */
 
 		interrupts-extended = <&gpio5 3 IRQ_TYPE_LEVEL_LOW
 				       &gpio6 4 IRQ_TYPE_LEVEL_LOW>;
 		interrupt-names = "intrq1", "intrq2";
-
-		clocks = <&rcar_sound 3>, <&audio_clk_c>;
-		clock-names = "clk-hdmi-video", "clk-hdmi-i2s-mclk";
 
 		port@8 {
 			reg = <8>;
@@ -443,8 +447,9 @@
 		port@c {
 			reg = <12>;
 
-			adv7482_i2s_endpoint: endpoint {
+			adv7482_i2s: endpoint {
 				remote-endpoint = <&rsnd_endpoint_i2s_tdm_in>;
+				system-clock-direction-out;
 			};
 		};
 	};
@@ -790,6 +795,7 @@
 		 <&cpg CPG_MOD 1020>, <&cpg CPG_MOD 1021>,
 		 <&cpg CPG_MOD 1019>, <&cpg CPG_MOD 1018>,
 		 <&audio_clk_a>, <&cs2000>,
+		 <&adv7482_hdmi_in>,
 		 <&cpg CPG_CORE CPG_AUDIO_CLK_I>;
 	clock-names = "ssi-all",
 		      "ssi.9", "ssi.8", "ssi.7", "ssi.6",
@@ -801,7 +807,7 @@
 		      "mix.1", "mix.0",
 		      "ctu.1", "ctu.0",
 		      "dvc.0", "dvc.1",
-		      "clk_a", "clk_b", "clk_i";
+		      "clk_a", "clk_b", "clk_c", "clk_i";
 
 	ports {
 		#address-cells = <1>;
@@ -823,17 +829,29 @@
 		rsnd_port1: port@1 {
 			reg = <1>;
 			rsnd_endpoint_i2s_tdm_in: endpoint {
-				remote-endpoint = <&adv7482_i2s_endpoint>;
+				remote-endpoint = <&adv7482_i2s>;
 
 				dai-tdm-slot-num = <8>;
 				dai-tdm-slot-width = <32>;
 				dai-format = "left_j";
 				mclk-fs = <256>;
-				bitclock-master = <&adv7482_i2s_endpoint>;
-				frame-master = <&adv7482_i2s_endpoint>;
-				system-clock-direction-out;
+				bitclock-master = <&adv7482_i2s>;
+				frame-master = <&adv7482_i2s>;
 
 				capture = <&ssi9>;
+			};
+		};
+		rsnd_port2: port@2 {
+			reg= <2>;
+			rsnd_endpoint2: endpoint {
+				remote-endpoint = <&rcar_dw_hdmi1_sound_in>;
+
+				dai-format = "i2s";
+				bitclock-master = <&rsnd_endpoint2>;
+				frame-master = <&rsnd_endpoint2>;
+				system-clock-direction-out;
+
+				playback = <&ssi0 &ssi1 &ssi2>;
 			};
 		};
 	};

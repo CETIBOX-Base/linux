@@ -280,6 +280,9 @@ struct rsnd_mod_ops {
 	int (*prepare)(struct rsnd_mod *mod,
 		       struct rsnd_dai_stream *io,
 		       struct rsnd_priv *priv);
+	int (*startup)(struct rsnd_mod *mod,
+		       struct rsnd_dai_stream *io,
+		       struct rsnd_priv *priv);
 	int (*cleanup)(struct rsnd_mod *mod,
 		       struct rsnd_dai_stream *io,
 		       struct rsnd_priv *priv);
@@ -326,11 +329,13 @@ struct rsnd_mod {
 #define __rsnd_mod_shift_hw_params	28 /* always called */
 #define __rsnd_mod_shift_pointer	28 /* always called */
 #define __rsnd_mod_shift_prepare	28 /* always called */
+#define __rsnd_mod_shift_startup	28 /* always called */
 #define __rsnd_mod_shift_cleanup	28 /* always called */
 
 #define __rsnd_mod_add_probe		0
 #define __rsnd_mod_add_remove		0
 #define __rsnd_mod_add_prepare		0
+#define __rsnd_mod_add_startup		0
 #define __rsnd_mod_add_cleanup		0
 #define __rsnd_mod_add_init		 1
 #define __rsnd_mod_add_quit		-1
@@ -345,6 +350,7 @@ struct rsnd_mod {
 #define __rsnd_mod_call_probe		0
 #define __rsnd_mod_call_remove		0
 #define __rsnd_mod_call_prepare		0
+#define __rsnd_mod_call_startup		0
 #define __rsnd_mod_call_cleanup		0
 #define __rsnd_mod_call_init		0
 #define __rsnd_mod_call_quit		1
