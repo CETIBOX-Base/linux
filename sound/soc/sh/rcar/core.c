@@ -897,6 +897,7 @@ static int rsnd_soc_dai_startup(struct snd_pcm_substream *substream,
 				struct snd_soc_dai *dai)
 {
 	struct rsnd_dai *rdai = rsnd_dai_to_rdai(dai);
+	struct rsnd_priv *priv = rsnd_rdai_to_priv(rdai);
 	struct rsnd_dai_stream *io = rsnd_rdai_to_io(rdai, substream);
 	struct snd_pcm_hw_constraint_list *constraint = &rdai->constraint;
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -946,7 +947,7 @@ static int rsnd_soc_dai_startup(struct snd_pcm_substream *substream,
 				    SNDRV_PCM_HW_PARAM_RATE, -1);
 	}
 
-	return 0;
+	return rsnd_dai_call(startup, io, priv);
 }
 
 static void rsnd_soc_dai_shutdown(struct snd_pcm_substream *substream,

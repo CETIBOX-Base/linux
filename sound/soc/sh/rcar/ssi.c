@@ -92,6 +92,8 @@ struct rsnd_ssi {
 	int byte_pos;
 	int byte_per_period;
 	int next_period_byte;
+
+	struct rsnd_dai_stream *io;
 };
 
 /* flags */
@@ -488,6 +490,33 @@ static int rsnd_ssi_quit(struct rsnd_mod *mod,
 	return 0;
 }
 
+static int rsnd_ssi_startup(struct rsnd_mod *mod,
+			    struct rsnd_dai_stream *io,
+			    struct rsnd_priv *priv)
+{
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(mod);
+	/* Restrict multiple DAIs using the same SSI.
+	 * Allow if SSI has parent/child connection, or if it is a setup with
+	 * multiple dais using the SSI behind a MIX.
+	 * Otherwise it is forbidden to use an SSI that is already in use.
+	 */
+	if (ssi->io && ssi->io->rdai != io->rdai &&
+	    (!rsnd_io_to_mod_mix(ssi->io) ||
+	     rsnd_io_to_mod_mix(ssi->io) != rsnd_io_to_mod_mix(io)))
+		return -EBUSY;
+	ssi->io = io;
+	return 0;
+}
+
+static int rsnd_ssi_cleanup(struct rsnd_mod *mod,
+			    struct rsnd_dai_stream *io,
+			    struct rsnd_priv *priv)
+{
+	struct rsnd_ssi *ssi = rsnd_mod_to_ssi(mod);
+	ssi->io = NULL;
+	return 0;
+}
+
 static int rsnd_ssi_hw_params(struct rsnd_mod *mod,
 			      struct rsnd_dai_stream *io,
 			      struct snd_pcm_substream *substream,
@@ -880,6 +909,9 @@ static struct rsnd_mod_ops rsnd_ssi_pio_ops = {
 	.pcm_new = rsnd_ssi_pcm_new,
 	.hw_params = rsnd_ssi_hw_params,
 	.prepare = rsnd_ssi_prepare,
+	.startup = rsnd_ssi_startup,
+	.cleanup = rsnd_ssi_cleanup,
+
 };
 
 static int rsnd_ssi_dma_probe(struct rsnd_mod *mod,
@@ -956,6 +988,8 @@ static struct rsnd_mod_ops rsnd_ssi_dma_ops = {
 	.fallback = rsnd_ssi_fallback,
 	.hw_params = rsnd_ssi_hw_params,
 	.prepare = rsnd_ssi_prepare,
+	.startup = rsnd_ssi_startup,
+	.cleanup = rsnd_ssi_cleanup,
 };
 
 int rsnd_ssi_is_dma_mode(struct rsnd_mod *mod)
