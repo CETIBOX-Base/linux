@@ -14,6 +14,7 @@
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/dma-mapping.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -27,6 +28,7 @@ struct rcar_fcp_device {
 	struct list_head list;
 	struct device *dev;
 	void __iomem *base;
+	struct device_dma_parameters dma_parms;
 };
 
 static LIST_HEAD(fcp_devices);
@@ -190,6 +192,9 @@ static int rcar_fcp_probe(struct platform_device *pdev)
 	fcp->base = devm_ioremap_resource(fcp->dev, mem);
 	if (IS_ERR(fcp->base))
 		return PTR_ERR(fcp->base);
+
+	fcp->dev->dma_parms = &fcp->dma_parms;
+	dma_set_max_seg_size(fcp->dev, DMA_BIT_MASK(32));
 
 	pm_runtime_enable(&pdev->dev);
 
