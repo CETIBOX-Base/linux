@@ -41,6 +41,11 @@
 		gpios = <10 GPIO_ACTIVE_LOW>;
 		output-low;
 	};
+	avb_link {
+		gpio-hog;
+		gpios = <12 GPIO_ACTIVE_LOW>;
+		output-low;
+	};
 };
 
 &msiof1 {
